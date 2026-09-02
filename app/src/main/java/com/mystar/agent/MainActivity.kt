@@ -82,7 +82,7 @@ private fun AgentHomeScreen() {
             fontWeight = FontWeight.Bold,
         )
         Text(
-            text = "M0 — 프로젝트 셋업 & 접근성 권한",
+            text = "M1 — 관찰: 화면 트리 덤프",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -106,7 +106,7 @@ private fun AgentHomeScreen() {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = if (connected) {
-                        "instance 바인딩 OK — 설정 > 접근성에서 활성화됨"
+                        "설정 앱을 연 뒤 우측 상단 '덤프' 오버레이를 누르면\n현재 화면 트리가 아래 로그에 출력됩니다."
                     } else {
                         "설정 > 접근성에서 \"MyStar Agent\"를 켜세요"
                     },
