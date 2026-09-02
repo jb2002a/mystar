@@ -144,6 +144,11 @@ class AgentAccessibilityService : AccessibilityService() {
                 Log.w(TAG, "inputText: no focused input after tapping $id")
                 return false
             }
+            Log.w(
+                TAG,
+                "inputText: focused class=${focused.className}, " +
+                    "editable=${focused.isEditable}, actions=${focused.actionList}",
+            )
             val args = Bundle()
             args.putCharSequence(
                 AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
