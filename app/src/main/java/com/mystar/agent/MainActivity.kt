@@ -23,12 +23,17 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -36,6 +41,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -63,6 +72,9 @@ private fun AgentHomeScreen() {
     val connected by ServiceStatus.connected.collectAsStateWithLifecycle()
     val logs by ServiceStatus.logs.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    var nodeId by remember { mutableStateOf("n3") }
+    var inputText by remember { mutableStateOf("") }
 
     LaunchedEffect(logs.size) {
         if (logs.isNotEmpty()) {
@@ -82,7 +94,7 @@ private fun AgentHomeScreen() {
             fontWeight = FontWeight.Bold,
         )
         Text(
-            text = "M1 — 관찰: 화면 트리 덤프",
+            text = "M2 — 행동: 탭 / 입력",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -106,12 +118,105 @@ private fun AgentHomeScreen() {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = if (connected) {
-                        "설정 앱을 연 뒤 우측 상단 '덤프' 오버레이를 누르면\n현재 화면 트리가 아래 로그에 출력됩니다."
+                        "설정 앱에서 '덤프'로 id를 확인한 뒤,\n아래 탭/입력으로 행동을 테스트하세요."
                     } else {
                         "설정 > 접근성에서 \"MyStar Agent\"를 켜세요"
                     },
                     style = MaterialTheme.typography.bodySmall,
                 )
+            }
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+            ),
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = "수동 테스트",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedTextField(
+                        value = nodeId,
+                        onValueChange = { nodeId = it },
+                        label = { Text("node id") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        enabled = connected,
+                    )
+                    Button(
+                        onClick = {
+                            val id = nodeId
+                            scope.launch(Dispatchers.Default) {
+                                AgentAccessibilityService.instance?.tapNode(id)
+                                    ?: ServiceStatus.appendLog("탭: 서비스 미연결")
+                            }
+                        },
+                        enabled = connected,
+                    ) {
+                        Text("탭")
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedTextField(
+                        value = inputText,
+                        onValueChange = { inputText = it },
+                        label = { Text("입력 텍스트") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        enabled = connected,
+                    )
+                    Button(
+                        onClick = {
+                            val text = inputText
+                            scope.launch(Dispatchers.Default) {
+                                AgentAccessibilityService.instance?.inputText(text)
+                                    ?: ServiceStatus.appendLog("입력: 서비스 미연결")
+                            }
+                        },
+                        enabled = connected,
+                    ) {
+                        Text("입력")
+                    }
+                }
+                Button(
+                    onClick = {
+                        val service = AgentAccessibilityService.instance
+                        if (service == null) {
+                            ServiceStatus.appendLog("탭 후 덤프: 서비스 미연결")
+                            return@Button
+                        }
+                        val id = nodeId
+                        scope.launch {
+                            withContext(Dispatchers.Default) {
+                                service.tapNode(id)
+                            }
+                            delay(600)
+                            withContext(Dispatchers.Default) {
+                                service.dumpScreenTreeToLog()
+                            }
+                        }
+                    },
+                    enabled = connected,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("탭 후 덤프")
+                }
             }
         }
 

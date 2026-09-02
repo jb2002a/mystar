@@ -1,9 +1,12 @@
 package com.mystar.agent
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
+import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.Point
 import android.graphics.Rect
+import android.os.Bundle
 import android.util.Log
 import android.view.Gravity
 import android.view.WindowManager
@@ -15,6 +18,9 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,7 +28,7 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * M1: 접근성 트리 관찰(getScreenTree) + 덤프 오버레이.
- * 탭/입력은 M2에서 추가한다.
+ * M2: tapNode / inputText 행동 API.
  */
 class AgentAccessibilityService : AccessibilityService() {
 
@@ -63,6 +69,114 @@ class AgentAccessibilityService : AccessibilityService() {
 
     /** M2용: 마지막 getScreenTree() 스냅샷의 node id → 중심 좌표. */
     fun getNodeCoordinates(nodeId: String): Point? = nodeCoords[nodeId]
+
+    /**
+     * 마지막 getScreenTree() 스냅샷의 node id로 탭한다.
+     * 좌표는 외부에 노출하지 않고 nodeCoords에서 조회한다.
+     */
+    fun tapNode(nodeId: String): Boolean {
+        val id = nodeId.replace("[", "").replace("]", "").trim()
+        if (id.isEmpty()) {
+            ServiceStatus.appendLog("tapNode: node id가 비어 있음")
+            Log.w(TAG, "tapNode: empty node id")
+            return false
+        }
+        val point = getNodeCoordinates(id)
+        if (point == null) {
+            ServiceStatus.appendLog("Node $id 없음. 먼저 덤프하세요")
+            Log.w(TAG, "tapNode: node $id not found")
+            return false
+        }
+        val ok = performTap(point.x, point.y)
+        if (ok) {
+            ServiceStatus.appendLog("tapNode: $id at (${point.x},${point.y}) OK")
+            Log.i(TAG, "tapNode: $id at (${point.x},${point.y}) OK")
+        } else {
+            ServiceStatus.appendLog("tapNode: $id at (${point.x},${point.y}) 실패")
+            Log.w(TAG, "tapNode: $id at (${point.x},${point.y}) failed")
+        }
+        return ok
+    }
+
+    /**
+     * 포커스된 입력 필드에 ACTION_SET_TEXT로 텍스트를 넣는다.
+     * 입력 전에 해당 필드를 tapNode로 포커스해야 한다.
+     */
+    fun inputText(text: String): Boolean {
+        val root = rootInActiveWindow
+        if (root == null) {
+            ServiceStatus.appendLog("inputText: root null (활성 창 없음)")
+            Log.w(TAG, "inputText: root null")
+            return false
+        }
+        var focused: AccessibilityNodeInfo? = null
+        return try {
+            focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            if (focused == null) {
+                ServiceStatus.appendLog("포커스된 입력 필드 없음. 먼저 입력창을 탭하세요")
+                Log.w(TAG, "inputText: no focused input field")
+                return false
+            }
+            val args = Bundle()
+            args.putCharSequence(
+                AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                text,
+            )
+            val ok = focused.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            if (ok) {
+                ServiceStatus.appendLog("inputText: OK (\"${sanitizeLabel(text)}\")")
+                Log.i(TAG, "inputText: OK")
+            } else {
+                ServiceStatus.appendLog("inputText: ACTION_SET_TEXT 실패")
+                Log.w(TAG, "inputText: ACTION_SET_TEXT failed")
+            }
+            ok
+        } finally {
+            focused?.recycle()
+            root.recycle()
+        }
+    }
+
+    private fun performTap(x: Int, y: Int, durationMs: Long = 100L): Boolean {
+        val path = Path()
+        path.moveTo(x.toFloat(), y.toFloat())
+        val stroke = GestureDescription.StrokeDescription(path, 0, durationMs)
+        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+        return dispatchGestureSync(gesture)
+    }
+
+    private fun dispatchGestureSync(gesture: GestureDescription): Boolean {
+        val latch = CountDownLatch(1)
+        val result = AtomicBoolean(false)
+        val dispatched = dispatchGesture(
+            gesture,
+            object : GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) {
+                    result.set(true)
+                    latch.countDown()
+                }
+
+                override fun onCancelled(gestureDescription: GestureDescription?) {
+                    result.set(false)
+                    latch.countDown()
+                }
+            },
+            null,
+        )
+        if (!dispatched) {
+            ServiceStatus.appendLog("dispatchGesture: 거부됨 (권한/서비스 상태 확인)")
+            Log.w(TAG, "dispatchGesture returned false")
+            return false
+        }
+        return try {
+            latch.await(GESTURE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            result.get()
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            Log.w(TAG, "dispatchGestureSync interrupted", e)
+            false
+        }
+    }
 
     /**
      * 현재 활성 창의 의미 있는 노드만 압축 텍스트로 직렬화한다.
@@ -235,6 +349,7 @@ class AgentAccessibilityService : AccessibilityService() {
     companion object {
         private const val TAG = "AgentA11y"
         private const val MAX_LABEL_LEN = 40
+        private const val GESTURE_TIMEOUT_MS = 2000L
 
         @Volatile
         var instance: AgentAccessibilityService? = null
