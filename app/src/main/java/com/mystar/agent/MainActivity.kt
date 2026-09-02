@@ -42,9 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -73,8 +71,9 @@ private fun AgentHomeScreen() {
     val logs by ServiceStatus.logs.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
-    var nodeId by remember { mutableStateOf("n3") }
-    var inputText by remember { mutableStateOf("") }
+    var param1 by remember { mutableStateOf("n3") }
+    var param2 by remember { mutableStateOf("") }
+    var message by remember { mutableStateOf("") }
 
     LaunchedEffect(logs.size) {
         if (logs.isNotEmpty()) {
@@ -118,7 +117,7 @@ private fun AgentHomeScreen() {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = if (connected) {
-                        "설정 앱에서 '덤프'로 id를 확인한 뒤,\n탭은 id만, 입력은 id+텍스트로 선택·입력을 한 번에 테스트하세요."
+                        "param1/param2에 값을 넣고 탭(tap_node)/입력(input_text)을 호출하세요.\n확인 버튼은 현재 화면을 로그로 덤프합니다."
                     } else {
                         "설정 > 접근성에서 \"MyStar Agent\"를 켜세요"
                     },
@@ -138,86 +137,99 @@ private fun AgentHomeScreen() {
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    text = "수동 테스트",
+                    text = "수동 테스트 (tool 호출)",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
+                )
+                OutlinedTextField(
+                    value = param1,
+                    onValueChange = { param1 = it },
+                    label = { Text("param1 · node id") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = connected,
+                )
+                OutlinedTextField(
+                    value = param2,
+                    onValueChange = { param2 = it },
+                    label = { Text("param2 · text (input_text용)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = connected,
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    OutlinedTextField(
-                        value = nodeId,
-                        onValueChange = { nodeId = it },
-                        label = { Text("node id") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
-                        enabled = connected,
-                    )
                     Button(
                         onClick = {
-                            val id = nodeId
+                            val id = param1
                             scope.launch(Dispatchers.Default) {
                                 AgentAccessibilityService.instance?.tapNode(id)
                                     ?: ServiceStatus.appendLog("탭: 서비스 미연결")
                             }
                         },
                         enabled = connected,
-                    ) {
-                        Text("탭")
-                    }
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    OutlinedTextField(
-                        value = inputText,
-                        onValueChange = { inputText = it },
-                        label = { Text("입력 텍스트") },
-                        singleLine = true,
                         modifier = Modifier.weight(1f),
-                        enabled = connected,
-                    )
+                    ) {
+                        Text("탭 (tap_node)")
+                    }
                     Button(
                         onClick = {
-                            val id = nodeId
-                            val text = inputText
+                            val id = param1
+                            val text = param2
                             scope.launch(Dispatchers.Default) {
                                 AgentAccessibilityService.instance?.inputText(text, id)
                                     ?: ServiceStatus.appendLog("입력: 서비스 미연결")
                             }
                         },
                         enabled = connected,
+                        modifier = Modifier.weight(1f),
                     ) {
-                        Text("입력")
+                        Text("입력 (input_text)")
                     }
                 }
                 Button(
                     onClick = {
-                        val service = AgentAccessibilityService.instance
-                        if (service == null) {
-                            ServiceStatus.appendLog("탭 후 덤프: 서비스 미연결")
-                            return@Button
-                        }
-                        val id = nodeId
-                        scope.launch {
-                            withContext(Dispatchers.Default) {
-                                service.tapNode(id)
-                            }
-                            delay(600)
-                            withContext(Dispatchers.Default) {
-                                service.dumpScreenTreeToLog()
-                            }
+                        scope.launch(Dispatchers.Default) {
+                            AgentAccessibilityService.instance?.dumpScreenTreeToLog()
+                                ?: ServiceStatus.appendLog("확인: 서비스 미연결")
                         }
                     },
                     enabled = connected,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("탭 후 덤프")
+                    Text("확인 (get_screen_info)")
                 }
+            }
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+            ),
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = "테스트용 입력 필드",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "이 화면을 확인으로 덤프해 node id를 얻고, 그 id로 탭/입력해 실제 포커스·타이핑이 되는지 검증하세요.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = message,
+                    onValueChange = { message = it },
+                    label = { Text("메시지") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
 
