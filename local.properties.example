@@ -1,0 +1,6 @@
+# local.properties example (do not put real keys in git)
+#
+# sdk.dir=C\:\\Users\\YOU\\AppData\\Local\\Android\\Sdk
+# LLM_API_KEY=sk-your-key-here
+#
+# LLM_API_KEY is read by app/build.gradle.kts and exposed as BuildConfig.LLM_API_KEY.
