@@ -100,7 +100,7 @@ class AgentAccessibilityService : AccessibilityService() {
 
     /**
      * node id로 입력 필드를 탭(포커스)한 뒤 ACTION_SET_TEXT로 텍스트를 넣는다.
-     * PokeClaw InputTextTool 핵심 경로: node_id 탭 → 포커스 대기 → SET_TEXT.
+     * findFocus가 비-editable이면 탭 좌표 근처 editable을 다시 찾는다.
      */
     fun inputText(text: String, nodeId: String): Boolean {
         val id = nodeId.replace("[", "").replace("]", "").trim()
@@ -130,31 +130,21 @@ class AgentAccessibilityService : AccessibilityService() {
             return false
         }
 
-        val root = rootInActiveWindow
-        if (root == null) {
-            ServiceStatus.appendLog("inputText: root null (활성 창 없음)")
-            Log.w(TAG, "inputText: root null")
+        val target = waitForTargetEditable(point.x, point.y)
+        if (target == null) {
+            ServiceStatus.appendLog("inputText: $id 탭 후에도 입력 필드 없음")
+            Log.w(TAG, "inputText: no editable field after tapping $id")
             return false
         }
-        var focused: AccessibilityNodeInfo? = null
         return try {
-            focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-            if (focused == null) {
-                ServiceStatus.appendLog("inputText: $id 탭 후에도 포커스된 입력 필드 없음")
-                Log.w(TAG, "inputText: no focused input after tapping $id")
-                return false
-            }
+            target.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+            target.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             Log.w(
                 TAG,
-                "inputText: focused class=${focused.className}, " +
-                    "editable=${focused.isEditable}, actions=${focused.actionList}",
+                "inputText: target class=${target.className}, " +
+                    "editable=${target.isEditable}, actions=${target.actionList}",
             )
-            val args = Bundle()
-            args.putCharSequence(
-                AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
-                text,
-            )
-            val ok = focused.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            val ok = trySetText(target, text)
             if (ok) {
                 ServiceStatus.appendLog("inputText: $id OK (\"${sanitizeLabel(text)}\")")
                 Log.i(TAG, "inputText: $id OK")
@@ -164,8 +154,102 @@ class AgentAccessibilityService : AccessibilityService() {
             }
             ok
         } finally {
-            focused?.recycle()
-            root.recycle()
+            target.recycle()
+        }
+    }
+
+    /**
+     * findFocus(FOCUS_INPUT)가 editable이면 그걸 쓰고,
+     * 아니면 탭 좌표를 포함하는 editable/EditText를 트리에서 찾는다.
+     */
+    private fun waitForTargetEditable(x: Int, y: Int): AccessibilityNodeInfo? {
+        repeat(EDITABLE_RETRY_COUNT) { attempt ->
+            val root = rootInActiveWindow
+            if (root != null) {
+                try {
+                    val focused = findFocusedEditText(root)
+                    if (focused != null) return focused
+                    val near = findEditableNearPoint(root, x, y)
+                    if (near != null) return near
+                } finally {
+                    root.recycle()
+                }
+            }
+            if (attempt < EDITABLE_RETRY_COUNT - 1 && !sleepShort()) return null
+        }
+        return null
+    }
+
+    private fun findFocusedEditText(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return null
+        if (focused.isEditable) return focused
+        Log.w(
+            TAG,
+            "inputText: findFocus ignored class=${focused.className}, " +
+                "editable=${focused.isEditable}, actions=${focused.actionList}",
+        )
+        if (focused !== root) focused.recycle()
+        return null
+    }
+
+    private fun findEditableNearPoint(node: AccessibilityNodeInfo, x: Int, y: Int): AccessibilityNodeInfo? {
+        val bounds = Rect()
+        node.getBoundsInScreen(bounds)
+        val className = node.className?.toString().orEmpty()
+        val looksEditable = node.isEditable || className.contains("EditText")
+        if (looksEditable && bounds.contains(x, y)) {
+            return AccessibilityNodeInfo.obtain(node)
+        }
+
+        var best: AccessibilityNodeInfo? = null
+        var bestDistance = Int.MAX_VALUE
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val candidate = try {
+                findEditableNearPoint(child, x, y)
+            } finally {
+                child.recycle()
+            } ?: continue
+            val cb = Rect()
+            candidate.getBoundsInScreen(cb)
+            val dx = cb.centerX() - x
+            val dy = cb.centerY() - y
+            val distance = dx * dx + dy * dy
+            if (distance < bestDistance) {
+                best?.recycle()
+                best = candidate
+                bestDistance = distance
+            } else {
+                candidate.recycle()
+            }
+        }
+        return best
+    }
+
+    private fun trySetText(node: AccessibilityNodeInfo, text: String): Boolean {
+        repeat(SET_TEXT_RETRY_COUNT) { attempt ->
+            val args = Bundle()
+            args.putCharSequence(
+                AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                text,
+            )
+            if (node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) return true
+            if (attempt < SET_TEXT_RETRY_COUNT - 1) {
+                if (!sleepShort()) return false
+                node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+                node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            }
+        }
+        return false
+    }
+
+    private fun sleepShort(): Boolean {
+        return try {
+            Thread.sleep(RETRY_SLEEP_MS)
+            true
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            false
         }
     }
 
@@ -383,6 +467,9 @@ class AgentAccessibilityService : AccessibilityService() {
         private const val MAX_LABEL_LEN = 40
         private const val GESTURE_TIMEOUT_MS = 2000L
         private const val FOCUS_WAIT_MS = 300L
+        private const val EDITABLE_RETRY_COUNT = 5
+        private const val SET_TEXT_RETRY_COUNT = 3
+        private const val RETRY_SLEEP_MS = 200L
 
         @Volatile
         var instance: AgentAccessibilityService? = null
