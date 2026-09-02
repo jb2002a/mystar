@@ -99,10 +99,37 @@ class AgentAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * 포커스된 입력 필드에 ACTION_SET_TEXT로 텍스트를 넣는다.
-     * 입력 전에 해당 필드를 tapNode로 포커스해야 한다.
+     * node id로 입력 필드를 탭(포커스)한 뒤 ACTION_SET_TEXT로 텍스트를 넣는다.
+     * PokeClaw InputTextTool 핵심 경로: node_id 탭 → 포커스 대기 → SET_TEXT.
      */
-    fun inputText(text: String): Boolean {
+    fun inputText(text: String, nodeId: String): Boolean {
+        val id = nodeId.replace("[", "").replace("]", "").trim()
+        if (id.isEmpty()) {
+            ServiceStatus.appendLog("inputText: node id가 비어 있음")
+            Log.w(TAG, "inputText: empty node id")
+            return false
+        }
+        val point = getNodeCoordinates(id)
+        if (point == null) {
+            ServiceStatus.appendLog("Node $id 없음. 먼저 덤프하세요")
+            Log.w(TAG, "inputText: node $id not found")
+            return false
+        }
+
+        val tapped = performTap(point.x, point.y)
+        if (!tapped) {
+            ServiceStatus.appendLog("inputText: $id 탭 실패")
+            Log.w(TAG, "inputText: tap $id failed")
+            return false
+        }
+        ServiceStatus.appendLog("inputText: $id 탭 후 포커스 대기")
+        try {
+            Thread.sleep(FOCUS_WAIT_MS)
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            return false
+        }
+
         val root = rootInActiveWindow
         if (root == null) {
             ServiceStatus.appendLog("inputText: root null (활성 창 없음)")
@@ -113,8 +140,8 @@ class AgentAccessibilityService : AccessibilityService() {
         return try {
             focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
             if (focused == null) {
-                ServiceStatus.appendLog("포커스된 입력 필드 없음. 먼저 입력창을 탭하세요")
-                Log.w(TAG, "inputText: no focused input field")
+                ServiceStatus.appendLog("inputText: $id 탭 후에도 포커스된 입력 필드 없음")
+                Log.w(TAG, "inputText: no focused input after tapping $id")
                 return false
             }
             val args = Bundle()
@@ -124,11 +151,11 @@ class AgentAccessibilityService : AccessibilityService() {
             )
             val ok = focused.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
             if (ok) {
-                ServiceStatus.appendLog("inputText: OK (\"${sanitizeLabel(text)}\")")
-                Log.i(TAG, "inputText: OK")
+                ServiceStatus.appendLog("inputText: $id OK (\"${sanitizeLabel(text)}\")")
+                Log.i(TAG, "inputText: $id OK")
             } else {
-                ServiceStatus.appendLog("inputText: ACTION_SET_TEXT 실패")
-                Log.w(TAG, "inputText: ACTION_SET_TEXT failed")
+                ServiceStatus.appendLog("inputText: $id ACTION_SET_TEXT 실패")
+                Log.w(TAG, "inputText: ACTION_SET_TEXT failed for $id")
             }
             ok
         } finally {
@@ -350,6 +377,7 @@ class AgentAccessibilityService : AccessibilityService() {
         private const val TAG = "AgentA11y"
         private const val MAX_LABEL_LEN = 40
         private const val GESTURE_TIMEOUT_MS = 2000L
+        private const val FOCUS_WAIT_MS = 300L
 
         @Volatile
         var instance: AgentAccessibilityService? = null

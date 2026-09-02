@@ -93,10 +93,10 @@ OkHttp + kotlinx.serialization  (LLM 연동)
 | `get_screen_info` | 접근성 트리 → 텍스트 (observation) | 없음 |
 | `open_app` | 패키지명으로 앱 실행 (`com.kakao.talk`) | `package` |
 | `tap_node` | node id로 탭 (좌표는 서비스가 저장) | `node_id` |
-| `input_text` | 포커스된 입력 필드에 타이핑 | `text` |
+| `input_text` | node id로 입력창을 탭(포커스)한 뒤 타이핑 | `text`, `node_id` |
 | `finish` | 완료 선언 → 루프 종료 | `summary` (선택) |
 
-**예상 흐름:** `open_app`(카톡) → `get_screen_info` → 딸 채팅 탭(`tap_node`) → 입력창 탭 → `input_text`(사랑한다) → 전송 버튼 탭 → `finish`. 화면 전환이 많아 라운드 5~14회 예상.
+**예상 흐름:** `open_app`(카톡) → `get_screen_info` → 딸 채팅 탭(`tap_node`) → `input_text`(사랑한다, 입력창 node) → 전송 버튼 탭 → `finish`. 화면 전환이 많아 라운드 5~14회 예상.
 
 ---
 

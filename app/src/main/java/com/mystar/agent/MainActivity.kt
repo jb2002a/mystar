@@ -118,7 +118,7 @@ private fun AgentHomeScreen() {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = if (connected) {
-                        "설정 앱에서 '덤프'로 id를 확인한 뒤,\n아래 탭/입력으로 행동을 테스트하세요."
+                        "설정 앱에서 '덤프'로 id를 확인한 뒤,\n탭은 id만, 입력은 id+텍스트로 선택·입력을 한 번에 테스트하세요."
                     } else {
                         "설정 > 접근성에서 \"MyStar Agent\"를 켜세요"
                     },
@@ -183,9 +183,10 @@ private fun AgentHomeScreen() {
                     )
                     Button(
                         onClick = {
+                            val id = nodeId
                             val text = inputText
                             scope.launch(Dispatchers.Default) {
-                                AgentAccessibilityService.instance?.inputText(text)
+                                AgentAccessibilityService.instance?.inputText(text, id)
                                     ?: ServiceStatus.appendLog("입력: 서비스 미연결")
                             }
                         },

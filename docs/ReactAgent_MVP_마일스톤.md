@@ -62,12 +62,12 @@ M0 ✅ 셋업/권한 → M1 ✅ 관찰 → M2 행동 → M3 LLM연동 → M4 루
 
 **할 일**
 - `tapNode(id)` — 저장된 좌표로 `dispatchGesture` 탭
-- `inputText(text)` — `findFocus(FOCUS_INPUT)` 후 `ACTION_SET_TEXT`
+- `inputText(text, nodeId)` — node id로 입력창 탭(포커스) 후 `ACTION_SET_TEXT` (선택·입력을 한 호출에서 수행)
 - 테스트용 임시 UI: "n3 탭", "여기에 입력" 같은 수동 버튼
 
 **완료 기준 (DoD)**
 - [ ] M1에서 얻은 node id를 넣으면 해당 요소가 실제로 탭됨
-- [ ] 입력창을 탭해 포커스한 뒤 `input_text`로 글자가 들어감
+- [ ] 입력창 node id + 텍스트로 `input_text`를 호출하면 해당 필드에 글자가 들어감
 - [ ] 탭 후 화면 전환이 일어나면 다시 `get_screen_info`로 새 트리가 읽힘
 
 **데모:** "손으로 node id를 지정해 설정 안을 몇 단계 들어갔다 나온다." → 관찰·행동 왕복이 성립.
