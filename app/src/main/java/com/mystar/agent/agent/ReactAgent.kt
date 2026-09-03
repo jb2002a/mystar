@@ -92,18 +92,27 @@ class ReactAgent(
                 return false
             }
             val initialNodes = initialTree.lines().count { it.isNotBlank() }
-            onEvent("ReAct: 초기 트리 주입 ($initialNodes nodes)")
+            onEvent("ReAct: 초기 트리 1회 주입 준비 ($initialNodes nodes)")
 
+            // 영속 히스토리: system 규칙 + 목표만. 초기 트리는 라운드 1 요청에만 붙인다.
             val messages = mutableListOf<JsonObject>(
                 llmClient.buildSystemMessage(),
-                llmClient.buildInitialUserMessage(goal, initialTree),
+                llmClient.buildGoalUserMessage(goal),
             )
+            val initialScreenContext = llmClient.buildInitialScreenContextMessage(initialTree)
 
             for (round in 1..MAX_ROUNDS) {
                 completedRounds = round
                 onEvent("ReAct: 라운드 $round/$MAX_ROUNDS")
 
-                val llmResult = llmClient.chooseNextTool(messages, parentRunId = rootRunId)
+                val requestMessages = if (round == 1) {
+                    onEvent("ReAct: 초기 트리 1회 전달 (히스토리 비누적)")
+                    // system 규칙 다음에 초기 화면, 그다음 목표 user.
+                    listOf(messages[0], initialScreenContext) + messages.drop(1)
+                } else {
+                    messages
+                }
+                val llmResult = llmClient.chooseNextTool(requestMessages, parentRunId = rootRunId)
                 val (toolCall, assistantMessage) = when (llmResult) {
                     is LlmResult.Success -> llmResult.toolCall to llmResult.assistantMessage
                     is LlmResult.Failure -> {

@@ -205,7 +205,11 @@ class LangSmithClient(
         private fun sanitizeContent(value: JsonElement): JsonElement {
             if (value is JsonNull) return value
             val text = value.jsonPrimitive.contentOrNull ?: return value
-            val redacted = if (text.contains("screen tree") || text.contains("현재 화면 트리")) {
+            val redacted = if (
+                text.contains("screen tree") ||
+                text.contains("현재 화면 트리") ||
+                text.contains("<initial_screen>")
+            ) {
                 truncateTree(text)
             } else if (text.length > MAX_CONTENT_CHARS * 2) {
                 text.take(MAX_CONTENT_CHARS * 2) + "…[truncated]"
