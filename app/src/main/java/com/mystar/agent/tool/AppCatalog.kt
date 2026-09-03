@@ -6,7 +6,7 @@ import android.content.pm.PackageManager
 
 /**
  * 런처에 보이는 설치 앱 목록을 "이름 | 패키지" 한 줄씩 반환한다.
- * 라운드 1 LLM 컨텍스트 주입용.
+ * 라운드 1 LLM 컨텍스트 주입용. 자기 앱(호스트)은 제외한다.
  */
 object AppCatalog {
 
@@ -21,7 +21,9 @@ object AppCatalog {
                 return "(설치된 런처 앱 없음)"
             }
 
+            val selfPackage = context.packageName
             val lines = resolveInfos
+                .filter { it.activityInfo.packageName != selfPackage }
                 .map { info ->
                     val label = info.loadLabel(pm).toString()
                     val pkg = info.activityInfo.packageName
