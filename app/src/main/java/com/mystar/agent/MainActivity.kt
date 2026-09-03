@@ -48,7 +48,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.mystar.agent.agent.SingleStepAgent
+import com.mystar.agent.agent.ReactAgent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -80,11 +80,11 @@ private fun AgentHomeScreen() {
     val pendingGoal by ServiceStatus.pendingGoal.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
-    val singleStepAgent = remember { SingleStepAgent() }
+    val reactAgent = remember { ReactAgent.shared }
     var param1 by remember { mutableStateOf("n3") }
     var param2 by remember { mutableStateOf("") }
     var message by remember { mutableStateOf("") }
-    var llmRunning by remember { mutableStateOf(false) }
+    var reactRunning by remember { mutableStateOf(false) }
 
     LaunchedEffect(logs.size) {
         if (logs.isNotEmpty()) {
@@ -107,7 +107,7 @@ private fun AgentHomeScreen() {
             fontWeight = FontWeight.Bold,
         )
         Text(
-            text = "M3 — 클라우드 LLM 단발 도구 선택",
+            text = "M4 — ReAct 루프",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -131,7 +131,7 @@ private fun AgentHomeScreen() {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = if (connected) {
-                        "목표를 저장한 뒤 설정 앱을 열고, 오버레이의 \"LLM 1회\"로 실행하세요.\n앱 화면에서도 바로 실행할 수 있지만, 그때는 이 앱 화면 트리가 캡처됩니다."
+                        "목표를 입력한 뒤 \"ReAct 루프 실행\" 또는 오버레이의 \"ReAct\"로 실행하세요.\n앱 전환이 필요한 목표는 open_app부터 자동으로 시작합니다."
                     } else {
                         "설정 > 접근성에서 \"MyStar Agent\"를 켜세요"
                     },
@@ -151,7 +151,7 @@ private fun AgentHomeScreen() {
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    text = "LLM 1회 실행",
+                    text = "ReAct 루프 실행",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -160,27 +160,27 @@ private fun AgentHomeScreen() {
                     onValueChange = { ServiceStatus.setPendingGoal(it) },
                     label = { Text("목표") },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !llmRunning,
+                    enabled = !reactRunning,
                 )
                 Button(
                     onClick = {
                         val goal = pendingGoal
-                        llmRunning = true
+                        reactRunning = true
                         scope.launch {
                             try {
-                                singleStepAgent.runOnce(goal)
+                                reactAgent.run(goal) { msg -> ServiceStatus.appendLog(msg) }
                             } finally {
-                                llmRunning = false
+                                reactRunning = false
                             }
                         }
                     },
-                    enabled = connected && !llmRunning && pendingGoal.isNotBlank(),
+                    enabled = connected && !reactRunning && pendingGoal.isNotBlank(),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(if (llmRunning) "실행 중…" else "LLM 1회 실행")
+                    Text(if (reactRunning) "실행 중…" else "ReAct 루프 실행")
                 }
                 Text(
-                    text = "설정 화면 테스트: 목표 저장 → 설정 앱 열기 → 오버레이 \"LLM 1회\"",
+                    text = "데모: \"설정 열어서 배터리 항목까지 들어가줘\" → 오버레이 \"ReAct\"로도 실행 가능",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -260,7 +260,7 @@ private fun AgentHomeScreen() {
                     enabled = connected,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("확인 (get_screen_info)")
+                    Text("확인 (화면 덤프)")
                 }
             }
         }

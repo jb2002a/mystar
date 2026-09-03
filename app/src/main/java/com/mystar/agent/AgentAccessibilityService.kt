@@ -7,6 +7,7 @@ import android.graphics.PixelFormat
 import android.graphics.Point
 import android.graphics.Rect
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import android.view.Gravity
 import android.view.WindowManager
@@ -22,29 +23,38 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
-import com.mystar.agent.agent.SingleStepAgent
+import java.util.concurrent.atomic.AtomicLong
+import com.mystar.agent.agent.ReactAgent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
+enum class StabilizeOutcome {
+    QUIET,
+    HARD_TIMEOUT,
+}
+
 /**
  * M1: 접근성 트리 관찰(getScreenTree) + 덤프 오버레이.
  * M2: tapNode / inputText 행동 API.
- * M3: 오버레이에서 SingleStepAgent(LLM 1회) 트리거.
+ * M4: 이벤트 quiet window 안정화 + ReactAgent 오버레이 트리거.
  */
 class AgentAccessibilityService : AccessibilityService() {
 
     private val nodeCoords = ConcurrentHashMap<String, Point>()
     private val nodeCounter = AtomicInteger(0)
 
+    /** WINDOW_STATE/CONTENT_CHANGED 마지막 수신 시각 (elapsedRealtime). */
+    private val lastWindowEventAt = AtomicLong(0L)
+
     private var overlayDumpButton: Button? = null
     private var overlayLlmButton: Button? = null
     private val overlayScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val singleStepAgent = SingleStepAgent()
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -56,7 +66,38 @@ class AgentAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // Window-change handling comes later (M4 timing).
+        if (event == null) return
+        when (event.eventType) {
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
+            -> lastWindowEventAt.set(SystemClock.elapsedRealtime())
+        }
+    }
+
+    /**
+     * 행동 직후 UI 안정화를 기다린다.
+     * 대기 시작 이후 창 이벤트가 없으면 quietMs 뒤 QUIET,
+     * 이벤트가 이어지면 마지막 이벤트 후 quietMs 뒤 QUIET,
+     * 어떤 경우든 hardTimeoutMs 에서 HARD_TIMEOUT.
+     */
+    suspend fun waitForUiSettle(
+        quietMs: Long = QUIET_WINDOW_MS,
+        hardTimeoutMs: Long = HARD_TIMEOUT_MS,
+    ): StabilizeOutcome {
+        val start = SystemClock.elapsedRealtime()
+        while (true) {
+            val now = SystemClock.elapsedRealtime()
+            val elapsed = now - start
+            if (elapsed >= hardTimeoutMs) {
+                return StabilizeOutcome.HARD_TIMEOUT
+            }
+            val lastEvent = lastWindowEventAt.get()
+            val effectiveLast = if (lastEvent > start) lastEvent else start
+            if (now - effectiveLast >= quietMs) {
+                return StabilizeOutcome.QUIET
+            }
+            delay(STABILIZE_POLL_MS)
+        }
     }
 
     override fun onInterrupt() {
@@ -421,17 +462,17 @@ class AgentAccessibilityService : AccessibilityService() {
             setOnClickListener { dumpScreenTreeToLog() }
         }
         val llmButton = Button(this).apply {
-            text = "LLM 1회"
+            text = "ReAct"
             textSize = 12f
             setPadding(24, 12, 24, 12)
             setOnClickListener {
                 val goal = ServiceStatus.pendingGoal.value
                 if (goal.isBlank()) {
-                    ServiceStatus.appendLog("LLM 1회: 앱에서 목표를 먼저 입력하세요")
+                    ServiceStatus.appendLog("ReAct: 앱에서 목표를 먼저 입력하세요")
                     return@setOnClickListener
                 }
                 overlayScope.launch {
-                    singleStepAgent.runOnce(goal)
+                    ReactAgent.shared.run(goal) { msg -> ServiceStatus.appendLog(msg) }
                 }
             }
         }
@@ -467,7 +508,7 @@ class AgentAccessibilityService : AccessibilityService() {
             wm.addView(llmButton, llmParams)
             overlayDumpButton = dumpButton
             overlayLlmButton = llmButton
-            ServiceStatus.appendLog("오버레이 표시됨 (덤프 / LLM 1회)")
+            ServiceStatus.appendLog("오버레이 표시됨 (덤프 / ReAct)")
             Log.i(TAG, "overlay shown")
         } catch (e: Exception) {
             ServiceStatus.appendLog("오버레이 실패: ${e.message}")
@@ -503,6 +544,9 @@ class AgentAccessibilityService : AccessibilityService() {
         private const val EDITABLE_RETRY_COUNT = 5
         private const val SET_TEXT_RETRY_COUNT = 3
         private const val RETRY_SLEEP_MS = 200L
+        const val QUIET_WINDOW_MS = 400L
+        const val HARD_TIMEOUT_MS = 2500L
+        private const val STABILIZE_POLL_MS = 50L
 
         @Volatile
         var instance: AgentAccessibilityService? = null
@@ -517,7 +561,7 @@ object ServiceStatus {
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
 
     private val _pendingGoal = MutableStateFlow(
-        "이 화면에서 배터리를 누르려면?",
+        "설정 열어서 배터리 항목까지 들어가줘",
     )
     val pendingGoal: StateFlow<String> = _pendingGoal.asStateFlow()
 

@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -25,7 +26,12 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
 sealed class LlmResult {
-    data class Success(val toolCall: ToolCall) : LlmResult()
+    data class Success(
+        val toolCall: ToolCall,
+        /** 히스토리에 그대로 넣을 assistant message (tool_calls 포함). */
+        val assistantMessage: JsonObject,
+    ) : LlmResult()
+
     data class Failure(val message: String) : LlmResult()
 }
 
@@ -55,7 +61,31 @@ class CloudLlmClient(
         }
     }
 
-    suspend fun chooseTool(goal: String, screenTree: String): LlmResult =
+    fun buildSystemMessage(): JsonObject = buildJsonObject {
+        put("role", "system")
+        put("content", SYSTEM_PROMPT)
+    }
+
+    fun buildInitialUserMessage(goal: String, screenTree: String): JsonObject = buildJsonObject {
+        put("role", "user")
+        put(
+            "content",
+            buildString {
+                appendLine("목표: $goal")
+                appendLine()
+                appendLine("현재 화면 트리 (시작 시 자동 주입):")
+                append(screenTree)
+            },
+        )
+    }
+
+    fun buildToolResultMessage(toolCallId: String, content: String): JsonObject = buildJsonObject {
+        put("role", "tool")
+        put("tool_call_id", toolCallId)
+        put("content", content)
+    }
+
+    suspend fun chooseNextTool(messages: List<JsonObject>): LlmResult =
         withContext(Dispatchers.IO) {
             val configError = configErrorOrNull()
             if (configError != null) {
@@ -63,9 +93,9 @@ class CloudLlmClient(
             }
 
             val endpoint = buildChatCompletionsUrl(baseUrl)
-            val body = buildRequestBody(goal, screenTree)
+            val body = buildRequestBody(messages)
             val bodyText = body.toString()
-            Log.i(TAG, "LLM req → $endpoint model=$model")
+            Log.i(TAG, "LLM req → $endpoint model=$model messages=${messages.size}")
             logChunked(TAG, "LLM req body", bodyText)
 
             val request = Request.Builder()
@@ -94,32 +124,15 @@ class CloudLlmClient(
             }
         }
 
-    private fun buildRequestBody(goal: String, screenTree: String): JsonObject {
+    private fun buildRequestBody(messages: List<JsonObject>): JsonObject {
         return buildJsonObject {
             put("model", model)
             put(
                 "messages",
                 buildJsonArray {
-                    add(
-                        buildJsonObject {
-                            put("role", "system")
-                            put("content", SYSTEM_PROMPT)
-                        },
-                    )
-                    add(
-                        buildJsonObject {
-                            put("role", "user")
-                            put(
-                                "content",
-                                buildString {
-                                    appendLine("목표: $goal")
-                                    appendLine()
-                                    appendLine("현재 화면 트리 (최신 스냅샷):")
-                                    append(screenTree)
-                                },
-                            )
-                        },
-                    )
+                    for (msg in messages) {
+                        add(msg)
+                    }
                 },
             )
             put("tools", toolsToJson(tools))
@@ -173,6 +186,11 @@ class CloudLlmClient(
         }
 
         val first = toolCalls[0].jsonObject
+        val id = first["id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        if (id.isEmpty()) {
+            return LlmResult.Failure("tool_calls[0].id 없음")
+        }
+
         val function = first["function"]?.jsonObject
             ?: return LlmResult.Failure("tool_calls[0].function 없음")
         val name = function["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
@@ -199,7 +217,27 @@ class CloudLlmClient(
             else -> return LlmResult.Failure("arguments 형식 오류")
         }
 
-        return LlmResult.Success(ToolCall(name = name, args = args))
+        // 히스토리용: 첫 tool call만 보존 (tool_choice=required 이므로 보통 1개).
+        val assistantMessage = buildJsonObject {
+            put("role", "assistant")
+            val content = message["content"]
+            if (content != null && content !is JsonNull) {
+                put("content", content)
+            } else {
+                put("content", JsonNull)
+            }
+            put(
+                "tool_calls",
+                buildJsonArray {
+                    add(first)
+                },
+            )
+        }
+
+        return LlmResult.Success(
+            toolCall = ToolCall(name = name, args = args, id = id),
+            assistantMessage = assistantMessage,
+        )
     }
 
     companion object {
@@ -208,12 +246,19 @@ class CloudLlmClient(
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
         private val SYSTEM_PROMPT = """
-당신은 Android 접근성 트리 기반 에이전트다.
-제공된 화면 트리는 방금 캡처한 최신 스냅샷이다.
-반드시 도구를 정확히 한 번만 호출한다.
-node id는 트리에 있는 값만 사용하고, 새로 만들지 않는다.
-이 단발 테스트에서는 목표를 달성하기 위한 다음 행동 하나만 고른다.
-이미 트리가 주어졌으므로 get_screen_info를 다시 부르지 않는다.
+당신은 Android 접근성 트리 기반 ReAct 에이전트다.
+매 라운드 도구를 정확히 한 번만 호출한다.
+
+화면 관찰 규칙:
+- 시작 시 시스템이 현재 화면 트리를 1회 주입한다.
+- 이후 화면 상태는 open_app / tap_node / input_text 실행 결과(tool result)에 자동으로 붙는다.
+- get_screen_info 도구는 없다. 화면을 따로 조회하지 않는다.
+
+행동 규칙:
+- node id는 가장 최근 화면 트리에 있는 값만 사용한다. 새로 만들지 않는다.
+- 목표가 특정 앱을 여는 것이면 초기 트리와 무관하게 open_app을 먼저 호출해도 된다.
+- 설정 앱 패키지 예: com.android.settings
+- 목표를 달성하면 finish(summary)로 종료한다.
 """.trimIndent()
 
         fun buildChatCompletionsUrl(baseUrl: String): String {

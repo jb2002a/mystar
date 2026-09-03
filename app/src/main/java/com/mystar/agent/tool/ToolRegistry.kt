@@ -11,12 +11,8 @@ import kotlinx.serialization.json.put
 
 object ToolRegistry {
 
+    /** LLM에 노출하는 공개 도구 (M4: get_screen_info 제외). */
     val definitions: List<ToolDefinition> = listOf(
-        ToolDefinition(
-            name = "get_screen_info",
-            description = "현재 활성 화면의 접근성 트리를 텍스트로 반환한다.",
-            parameters = emptyObjectSchema(),
-        ),
         ToolDefinition(
             name = "open_app",
             description = "패키지명으로 앱을 실행한다. 예: com.android.settings",
@@ -27,7 +23,7 @@ object ToolRegistry {
         ),
         ToolDefinition(
             name = "tap_node",
-            description = "get_screen_info에서 받은 node id를 탭한다. 예: n3",
+            description = "최신 화면 트리에 있는 node id를 탭한다. 예: n3",
             parameters = objectSchema(
                 "node_id" to stringProp("탭할 node id (예: n3)"),
                 required = listOf("node_id"),
@@ -59,22 +55,12 @@ object ToolRegistry {
             return ToolResult(false, "알 수 없는 도구: ${call.name}")
         }
         return when (call.name) {
-            "get_screen_info" -> executeGetScreenInfo()
             "open_app" -> executeOpenApp(call.args)
             "tap_node" -> executeTapNode(call.args)
             "input_text" -> executeInputText(call.args)
             "finish" -> executeFinish(call.args)
             else -> ToolResult(false, "알 수 없는 도구: ${call.name}")
         }
-    }
-
-    private fun executeGetScreenInfo(): ToolResult {
-        val service = AgentAccessibilityService.instance
-            ?: return ToolResult(false, "접근성 서비스 미연결")
-        val tree = service.getScreenTree()
-            ?: return ToolResult(false, "화면 트리를 읽을 수 없음 (root null)")
-        val lines = tree.lines().count { it.isNotBlank() }
-        return ToolResult(true, "screen tree ($lines nodes):\n$tree")
     }
 
     private fun executeOpenApp(args: JsonObject): ToolResult {
@@ -130,12 +116,6 @@ object ToolRegistry {
     private fun requireString(args: JsonObject, key: String): String? {
         val value = args[key]?.jsonPrimitive?.contentOrNull?.trim()
         return value?.takeIf { it.isNotEmpty() }
-    }
-
-    private fun emptyObjectSchema(): JsonObject = buildJsonObject {
-        put("type", "object")
-        put("properties", buildJsonObject { })
-        put("additionalProperties", false)
     }
 
     private fun objectSchema(
