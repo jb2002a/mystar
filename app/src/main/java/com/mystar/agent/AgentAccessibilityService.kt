@@ -370,7 +370,6 @@ class AgentAccessibilityService : AccessibilityService() {
             if (node.isEditable) line.append(" edit")
             if (node.isScrollable) line.append(" scroll")
             if (node.isCheckable) line.append(if (node.isChecked) " on" else " off")
-            line.append(" (").append(cx).append(",").append(cy).append(")")
 
             sb.append(line).append('\n')
         }
