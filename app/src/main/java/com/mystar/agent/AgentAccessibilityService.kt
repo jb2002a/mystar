@@ -147,11 +147,6 @@ class AgentAccessibilityService : AccessibilityService() {
         return try {
             target.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
             target.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            Log.w(
-                TAG,
-                "inputText: target class=${target.className}, " +
-                    "editable=${target.isEditable}, actions=${target.actionList}",
-            )
             val ok = trySetText(target, text)
             if (ok) {
                 ServiceStatus.appendLog("inputText: $id OK (\"${sanitizeLabel(text)}\")")
@@ -191,11 +186,6 @@ class AgentAccessibilityService : AccessibilityService() {
     private fun findFocusedEditText(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
         val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return null
         if (focused.isEditable) return focused
-        Log.w(
-            TAG,
-            "inputText: findFocus ignored class=${focused.className}, " +
-                "editable=${focused.isEditable}, actions=${focused.actionList}",
-        )
         if (focused !== root) focused.recycle()
         return null
     }

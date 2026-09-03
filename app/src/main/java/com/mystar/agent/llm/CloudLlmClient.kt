@@ -1,5 +1,6 @@
 package com.mystar.agent.llm
 
+import android.util.Log
 import com.mystar.agent.BuildConfig
 import com.mystar.agent.tool.ToolCall
 import com.mystar.agent.tool.ToolDefinition
@@ -63,16 +64,22 @@ class CloudLlmClient(
 
             val endpoint = buildChatCompletionsUrl(baseUrl)
             val body = buildRequestBody(goal, screenTree)
+            val bodyText = body.toString()
+            Log.i(TAG, "LLM req → $endpoint model=$model")
+            logChunked(TAG, "LLM req body", bodyText)
+
             val request = Request.Builder()
                 .url(endpoint)
                 .header("Authorization", "Bearer $apiKey")
                 .header("Content-Type", "application/json")
-                .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .post(bodyText.toRequestBody(JSON_MEDIA_TYPE))
                 .build()
 
             try {
                 httpClient.newCall(request).execute().use { response ->
                     val responseBody = response.body?.string().orEmpty()
+                    Log.i(TAG, "LLM res ← HTTP ${response.code} (${responseBody.length} chars)")
+                    logChunked(TAG, "LLM res body", responseBody)
                     if (!response.isSuccessful) {
                         val snippet = responseBody.take(200).replace('\n', ' ')
                         return@withContext LlmResult.Failure(
@@ -82,6 +89,7 @@ class CloudLlmClient(
                     parseToolCall(responseBody)
                 }
             } catch (e: Exception) {
+                Log.e(TAG, "LLM call failed: ${e.message}", e)
                 LlmResult.Failure("네트워크/호출 실패: ${e.message}")
             }
         }
@@ -195,6 +203,8 @@ class CloudLlmClient(
     }
 
     companion object {
+        private const val TAG = "AgentA11y"
+        private const val LOG_CHUNK = 3500
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
         private val SYSTEM_PROMPT = """
@@ -212,6 +222,27 @@ node id는 트리에 있는 값만 사용하고, 새로 만들지 않는다.
                 trimmed
             } else {
                 "$trimmed/chat/completions"
+            }
+        }
+
+        /** Logcat 한도(~4KB)를 넘지 않도록 본문을 나눠 출력. Authorization/API 키는 절대 포함하지 말 것. */
+        private fun logChunked(tag: String, label: String, text: String) {
+            if (text.isEmpty()) {
+                Log.i(tag, "$label: <empty>")
+                return
+            }
+            if (text.length <= LOG_CHUNK) {
+                Log.i(tag, "$label:\n$text")
+                return
+            }
+            var offset = 0
+            var part = 1
+            val total = (text.length + LOG_CHUNK - 1) / LOG_CHUNK
+            while (offset < text.length) {
+                val end = minOf(offset + LOG_CHUNK, text.length)
+                Log.i(tag, "$label ($part/$total):\n${text.substring(offset, end)}")
+                offset = end
+                part++
             }
         }
     }
