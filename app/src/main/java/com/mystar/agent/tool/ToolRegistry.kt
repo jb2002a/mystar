@@ -51,6 +51,7 @@ object ToolRegistry {
     private val byName: Map<String, ToolDefinition> = definitions.associateBy { it.name }
 
     fun execute(call: ToolCall): ToolResult {
+        if (call.name == "get_screen_info") return getScreenInfo()
         if (byName[call.name] == null) {
             return ToolResult(false, "알 수 없는 도구: ${call.name}")
         }
@@ -61,6 +62,16 @@ object ToolRegistry {
             "finish" -> executeFinish(call.args)
             else -> ToolResult(false, "알 수 없는 도구: ${call.name}")
         }
+    }
+
+    /** LLM 스키마에는 없음. 덤프·내부 관찰용. */
+    fun getScreenInfo(): ToolResult {
+        val service = AgentAccessibilityService.instance
+            ?: return ToolResult(false, "접근성 서비스 미연결")
+        val tree = service.getScreenTree()
+            ?: return ToolResult(false, "화면 트리를 읽을 수 없음 (root null)")
+        val lines = tree.lines().count { it.isNotBlank() }
+        return ToolResult(true, "screen tree ($lines nodes):\n$tree")
     }
 
     private fun executeOpenApp(args: JsonObject): ToolResult {

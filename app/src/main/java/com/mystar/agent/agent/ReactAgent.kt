@@ -1,22 +1,27 @@
 package com.mystar.agent.agent
 
 import com.mystar.agent.AgentAccessibilityService
+import com.mystar.agent.BuildConfig
 import com.mystar.agent.StabilizeOutcome
 import com.mystar.agent.llm.CloudLlmClient
 import com.mystar.agent.llm.LlmResult
 import com.mystar.agent.tool.ToolRegistry
+import com.mystar.agent.tracing.LangSmithClient
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * M4: reason → act → (안정화 + 최신 트리 tool_result) 반복.
  */
 class ReactAgent(
     private val llmClient: CloudLlmClient = CloudLlmClient(),
+    private val tracer: LangSmithClient = LangSmithClient.shared,
 ) {
     private val running = AtomicBoolean(false)
     private val mutex = Mutex()
@@ -59,80 +64,143 @@ class ReactAgent(
         }
 
         onEvent("ReAct: 시작 — 목표=\"$goal\"")
-
-        val initialTree = withContext(Dispatchers.Default) {
-            service.getScreenTree()
+        if (tracer.enabled) {
+            onEvent("ReAct: LangSmith tracing ON (project=${BuildConfig.LANGSMITH_PROJECT})")
         }
-        if (initialTree == null) {
-            onEvent("ReAct: 초기 화면 트리 null (활성 창 없음?)")
-            return false
-        }
-        val initialNodes = initialTree.lines().count { it.isNotBlank() }
-        onEvent("ReAct: 초기 트리 주입 ($initialNodes nodes)")
 
-        val messages = mutableListOf<JsonObject>(
-            llmClient.buildSystemMessage(),
-            llmClient.buildInitialUserMessage(goal, initialTree),
+        val rootRunId = tracer.startRun(
+            name = "react_agent_run",
+            runType = "chain",
+            inputs = buildJsonObject {
+                put("goal", LangSmithClient.redactGoal(goal))
+            },
         )
 
-        for (round in 1..MAX_ROUNDS) {
-            onEvent("ReAct: 라운드 $round/$MAX_ROUNDS")
+        var completedRounds = 0
+        var endError: String? = null
+        var success = false
+        var endReason = "unknown"
 
-            val llmResult = llmClient.chooseNextTool(messages)
-            val (toolCall, assistantMessage) = when (llmResult) {
-                is LlmResult.Success -> llmResult.toolCall to llmResult.assistantMessage
-                is LlmResult.Failure -> {
-                    onEvent("ReAct: LLM 실패 — ${llmResult.message}")
-                    return false
-                }
-            }
-
-            messages.add(assistantMessage)
-            onEvent("ReAct: 선택 ${toolCall.name}${toolCall.args}")
-
-            val actionResult = withContext(Dispatchers.Default) {
-                ToolRegistry.execute(toolCall)
-            }
-
-            if (toolCall.name == "finish") {
-                onEvent("ReAct: 완료 — ${actionResult.message}")
-                return actionResult.success
-            }
-
-            onEvent("ReAct: 안정화 대기 (quiet=${AgentAccessibilityService.QUIET_WINDOW_MS}ms / hard=${AgentAccessibilityService.HARD_TIMEOUT_MS}ms)")
-            val outcome = service.waitForUiSettle()
-            val settleLabel = when (outcome) {
-                StabilizeOutcome.QUIET -> "quiet"
-                StabilizeOutcome.HARD_TIMEOUT -> "hard timeout"
-            }
-            onEvent("ReAct: 안정화 종료 ($settleLabel)")
-
-            val latestTree = withContext(Dispatchers.Default) {
+        try {
+            val initialTree = withContext(Dispatchers.Default) {
                 service.getScreenTree()
             }
-            val treeBlock = if (latestTree != null) {
-                val nodes = latestTree.lines().count { it.isNotBlank() }
-                onEvent("ReAct: 트리 갱신 ($nodes nodes)")
-                "screen tree ($nodes nodes):\n$latestTree"
-            } else {
-                onEvent("ReAct: 트리 null (root 없음)")
-                "screen tree: null (root 없음)"
+            if (initialTree == null) {
+                onEvent("ReAct: 초기 화면 트리 null (활성 창 없음?)")
+                endReason = "initial_tree_null"
+                endError = "initial screen tree null"
+                return false
+            }
+            val initialNodes = initialTree.lines().count { it.isNotBlank() }
+            onEvent("ReAct: 초기 트리 주입 ($initialNodes nodes)")
+
+            val messages = mutableListOf<JsonObject>(
+                llmClient.buildSystemMessage(),
+                llmClient.buildInitialUserMessage(goal, initialTree),
+            )
+
+            for (round in 1..MAX_ROUNDS) {
+                completedRounds = round
+                onEvent("ReAct: 라운드 $round/$MAX_ROUNDS")
+
+                val llmResult = llmClient.chooseNextTool(messages, parentRunId = rootRunId)
+                val (toolCall, assistantMessage) = when (llmResult) {
+                    is LlmResult.Success -> llmResult.toolCall to llmResult.assistantMessage
+                    is LlmResult.Failure -> {
+                        onEvent("ReAct: LLM 실패 — ${llmResult.message}")
+                        endReason = "llm_failure"
+                        endError = llmResult.message
+                        return false
+                    }
+                }
+
+                messages.add(assistantMessage)
+                onEvent("ReAct: 선택 ${toolCall.name}${toolCall.args}")
+
+                val toolRunId = tracer.startRun(
+                    name = toolCall.name,
+                    runType = "tool",
+                    inputs = buildJsonObject {
+                        put("name", toolCall.name)
+                        put("args", LangSmithClient.sanitizeToolArgs(toolCall.name, toolCall.args))
+                        put("round", round)
+                    },
+                    parentRunId = rootRunId,
+                )
+
+                val actionResult = withContext(Dispatchers.Default) {
+                    ToolRegistry.execute(toolCall)
+                }
+
+                tracer.endRun(
+                    toolRunId,
+                    outputs = buildJsonObject {
+                        put("success", actionResult.success)
+                        put(
+                            "message",
+                            LangSmithClient.sanitizeToolResultMessage(actionResult.message),
+                        )
+                    },
+                    error = if (actionResult.success) null else actionResult.message.lineSequence().first(),
+                )
+
+                if (toolCall.name == "finish") {
+                    onEvent("ReAct: 완료 — ${actionResult.message}")
+                    success = actionResult.success
+                    endReason = if (success) "finish" else "finish_failed"
+                    if (!success) {
+                        endError = actionResult.message
+                    }
+                    return actionResult.success
+                }
+
+                onEvent("ReAct: 안정화 대기 (quiet=${AgentAccessibilityService.QUIET_WINDOW_MS}ms / hard=${AgentAccessibilityService.HARD_TIMEOUT_MS}ms)")
+                val outcome = service.waitForUiSettle()
+                val settleLabel = when (outcome) {
+                    StabilizeOutcome.QUIET -> "quiet"
+                    StabilizeOutcome.HARD_TIMEOUT -> "hard timeout"
+                }
+                onEvent("ReAct: 안정화 종료 ($settleLabel)")
+
+                val latestTree = withContext(Dispatchers.Default) {
+                    service.getScreenTree()
+                }
+                val treeBlock = if (latestTree != null) {
+                    val nodes = latestTree.lines().count { it.isNotBlank() }
+                    onEvent("ReAct: 트리 갱신 ($nodes nodes)")
+                    "screen tree ($nodes nodes):\n$latestTree"
+                } else {
+                    onEvent("ReAct: 트리 null (root 없음)")
+                    "screen tree: null (root 없음)"
+                }
+
+                val resultContent = buildString {
+                    append(actionResult.message)
+                    appendLine()
+                    appendLine()
+                    append(treeBlock)
+                }
+                messages.add(llmClient.buildToolResultMessage(toolCall.id, resultContent))
+
+                val status = if (actionResult.success) "OK" else "실패"
+                onEvent("ReAct: 결과 $status — ${actionResult.message.lineSequence().first()}")
             }
 
-            val resultContent = buildString {
-                append(actionResult.message)
-                appendLine()
-                appendLine()
-                append(treeBlock)
-            }
-            messages.add(llmClient.buildToolResultMessage(toolCall.id, resultContent))
-
-            val status = if (actionResult.success) "OK" else "실패"
-            onEvent("ReAct: 결과 $status — ${actionResult.message.lineSequence().first()}")
+            onEvent("ReAct: 최대 라운드($MAX_ROUNDS) 도달 — 중단 (완료 여부 불명확)")
+            endReason = "max_rounds"
+            endError = "max rounds reached"
+            return false
+        } finally {
+            tracer.endRun(
+                rootRunId,
+                outputs = buildJsonObject {
+                    put("success", success)
+                    put("reason", endReason)
+                    put("rounds", completedRounds)
+                },
+                error = endError,
+            )
         }
-
-        onEvent("ReAct: 최대 라운드($MAX_ROUNDS) 도달 — 중단 (완료 여부 불명확)")
-        return false
     }
 
     companion object {

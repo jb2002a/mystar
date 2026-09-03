@@ -5,6 +5,7 @@ import com.mystar.agent.BuildConfig
 import com.mystar.agent.tool.ToolCall
 import com.mystar.agent.tool.ToolDefinition
 import com.mystar.agent.tool.ToolRegistry
+import com.mystar.agent.tracing.LangSmithClient
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -40,6 +41,7 @@ class CloudLlmClient(
     private val baseUrl: String = BuildConfig.LLM_BASE_URL,
     private val model: String = BuildConfig.LLM_MODEL,
     private val tools: List<ToolDefinition> = ToolRegistry.definitions,
+    private val tracer: LangSmithClient = LangSmithClient.shared,
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -85,7 +87,10 @@ class CloudLlmClient(
         put("content", content)
     }
 
-    suspend fun chooseNextTool(messages: List<JsonObject>): LlmResult =
+    suspend fun chooseNextTool(
+        messages: List<JsonObject>,
+        parentRunId: String? = null,
+    ): LlmResult =
         withContext(Dispatchers.IO) {
             val configError = configErrorOrNull()
             if (configError != null) {
@@ -98,6 +103,18 @@ class CloudLlmClient(
             Log.i(TAG, "LLM req → $endpoint model=$model messages=${messages.size}")
             logChunked(TAG, "LLM req body", bodyText)
 
+            val llmRunId = tracer.startRun(
+                name = "choose_next_tool",
+                runType = "llm",
+                inputs = buildJsonObject {
+                    put("model", model)
+                    put("messages", LangSmithClient.sanitizeMessages(messages))
+                    put("message_count", messages.size)
+                },
+                parentRunId = parentRunId,
+            )
+            val startedAt = System.currentTimeMillis()
+
             val request = Request.Builder()
                 .url(endpoint)
                 .header("Authorization", "Bearer $apiKey")
@@ -108,19 +125,68 @@ class CloudLlmClient(
             try {
                 httpClient.newCall(request).execute().use { response ->
                     val responseBody = response.body?.string().orEmpty()
+                    val latencyMs = System.currentTimeMillis() - startedAt
                     Log.i(TAG, "LLM res ← HTTP ${response.code} (${responseBody.length} chars)")
                     logChunked(TAG, "LLM res body", responseBody)
                     if (!response.isSuccessful) {
                         val snippet = responseBody.take(200).replace('\n', ' ')
-                        return@withContext LlmResult.Failure(
-                            "HTTP ${response.code}: $snippet",
+                        val err = "HTTP ${response.code}: $snippet"
+                        tracer.endRun(
+                            llmRunId,
+                            outputs = buildJsonObject {
+                                put("error", err)
+                                put("latency_ms", latencyMs)
+                            },
+                            error = err,
                         )
+                        return@withContext LlmResult.Failure(err)
                     }
-                    parseToolCall(responseBody)
+                    val parsed = parseToolCall(responseBody)
+                    when (parsed) {
+                        is LlmResult.Success -> {
+                            tracer.endRun(
+                                llmRunId,
+                                outputs = buildJsonObject {
+                                    put("model", model)
+                                    put("latency_ms", latencyMs)
+                                    put("tool_name", parsed.toolCall.name)
+                                    put(
+                                        "tool_args",
+                                        LangSmithClient.sanitizeToolArgs(
+                                            parsed.toolCall.name,
+                                            parsed.toolCall.args,
+                                        ),
+                                    )
+                                    put("tool_call_id", parsed.toolCall.id)
+                                },
+                            )
+                        }
+                        is LlmResult.Failure -> {
+                            tracer.endRun(
+                                llmRunId,
+                                outputs = buildJsonObject {
+                                    put("error", parsed.message)
+                                    put("latency_ms", latencyMs)
+                                },
+                                error = parsed.message,
+                            )
+                        }
+                    }
+                    parsed
                 }
             } catch (e: Exception) {
+                val latencyMs = System.currentTimeMillis() - startedAt
                 Log.e(TAG, "LLM call failed: ${e.message}", e)
-                LlmResult.Failure("네트워크/호출 실패: ${e.message}")
+                val err = "네트워크/호출 실패: ${e.message}"
+                tracer.endRun(
+                    llmRunId,
+                    outputs = buildJsonObject {
+                        put("error", err)
+                        put("latency_ms", latencyMs)
+                    },
+                    error = err,
+                )
+                LlmResult.Failure(err)
             }
         }
 

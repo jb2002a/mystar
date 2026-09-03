@@ -16,6 +16,12 @@ val localProperties = Properties().apply {
 val llmApiKey: String = localProperties.getProperty("LLM_API_KEY", "")
 val llmBaseUrl: String = localProperties.getProperty("LLM_BASE_URL", "")
 val llmModel: String = localProperties.getProperty("LLM_MODEL", "")
+val langsmithApiKey: String = localProperties.getProperty("LANGSMITH_API_KEY", "")
+val langsmithProject: String = localProperties.getProperty("LANGSMITH_PROJECT", "")
+val langsmithEndpoint: String = localProperties.getProperty(
+    "LANGSMITH_ENDPOINT",
+    "https://api.smith.langchain.com",
+)
 
 fun escapeBuildConfig(value: String): String = value.replace("\\", "\\\\").replace("\"", "\\\"")
 
@@ -33,6 +39,13 @@ android {
         buildConfigField("String", "LLM_API_KEY", "\"${escapeBuildConfig(llmApiKey)}\"")
         buildConfigField("String", "LLM_BASE_URL", "\"${escapeBuildConfig(llmBaseUrl)}\"")
         buildConfigField("String", "LLM_MODEL", "\"${escapeBuildConfig(llmModel)}\"")
+        buildConfigField("String", "LANGSMITH_API_KEY", "\"${escapeBuildConfig(langsmithApiKey)}\"")
+        buildConfigField("String", "LANGSMITH_PROJECT", "\"${escapeBuildConfig(langsmithProject)}\"")
+        buildConfigField(
+            "String",
+            "LANGSMITH_ENDPOINT",
+            "\"${escapeBuildConfig(langsmithEndpoint)}\"",
+        )
     }
 
     buildTypes {

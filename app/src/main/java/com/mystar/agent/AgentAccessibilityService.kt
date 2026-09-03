@@ -25,6 +25,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import com.mystar.agent.agent.ReactAgent
+import com.mystar.agent.tool.ToolRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -352,19 +353,18 @@ class AgentAccessibilityService : AccessibilityService() {
     }
 
     fun dumpScreenTreeToLog() {
-        val tree = getScreenTree()
-        if (tree == null) {
-            ServiceStatus.appendLog("getScreenTree: root null (활성 창 없음 / 시스템 다이얼로그?)")
-            Log.w(TAG, "getScreenTree: root null")
+        val result = ToolRegistry.getScreenInfo()
+        if (!result.success) {
+            ServiceStatus.appendLog("get_screen_info 실패: ${result.message}")
+            Log.w(TAG, "get_screen_info failed: ${result.message}")
             return
         }
-        val lines = tree.lines().filter { it.isNotBlank() }
-        ServiceStatus.appendLog("── screen tree (${lines.size} nodes, ${nodeCoords.size} coords) ──")
-        for (line in lines) {
+        ServiceStatus.appendLog("── get_screen_info ──")
+        for (line in result.message.lineSequence().filter { it.isNotBlank() }) {
             ServiceStatus.appendLog(line)
         }
-        ServiceStatus.appendLog("── end screen tree ──")
-        Log.i(TAG, "dumped screen tree: ${lines.size} lines")
+        ServiceStatus.appendLog("── end get_screen_info ──")
+        Log.i(TAG, "dumped get_screen_info")
     }
 
     private fun buildNodeTree(node: AccessibilityNodeInfo, sb: StringBuilder, depth: Int) {
