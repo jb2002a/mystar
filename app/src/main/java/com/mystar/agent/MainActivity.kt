@@ -38,6 +38,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
@@ -64,6 +65,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        ServiceStatus.init(this)
         ServiceStatus.refreshFromInstance()
         ServiceStatus.appendLog("MainActivity.onCreate")
         setContent {
@@ -85,6 +87,7 @@ class MainActivity : ComponentActivity() {
 private fun AgentHomeScreen() {
     val context = LocalContext.current
     val connected by ServiceStatus.connected.collectAsStateWithLifecycle()
+    val overlayEnabled by ServiceStatus.overlayEnabled.collectAsStateWithLifecycle()
     val logs by ServiceStatus.logs.collectAsStateWithLifecycle()
     val pendingGoal by ServiceStatus.pendingGoal.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
@@ -206,6 +209,32 @@ private fun AgentHomeScreen() {
                     },
                     style = MaterialTheme.typography.bodySmall,
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "오버레이",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                        )
+                        if (connected) {
+                            Text(
+                                text = "화면에 덤프 / Finish 버튼을 표시합니다",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    Switch(
+                        checked = overlayEnabled,
+                        onCheckedChange = { ServiceStatus.setOverlayEnabled(context, it) },
+                        enabled = connected,
+                    )
+                }
             }
         }
 

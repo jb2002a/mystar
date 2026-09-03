@@ -2,6 +2,7 @@ package com.mystar.agent
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.Context
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.Point
@@ -59,7 +60,16 @@ class AgentAccessibilityService : AccessibilityService() {
         ServiceStatus.setConnected(true)
         ServiceStatus.appendLog("onServiceConnected: instance bound")
         Log.i(TAG, "onServiceConnected: instance bound")
-        showDumpOverlay()
+        setOverlayVisible(ServiceStatus.overlayEnabled.value)
+    }
+
+    fun setOverlayVisible(visible: Boolean) {
+        if (visible) {
+            showDumpOverlay()
+        } else {
+            removeDumpOverlay()
+            ServiceStatus.appendLog("오버레이 숨김")
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -554,8 +564,14 @@ class AgentAccessibilityService : AccessibilityService() {
 }
 
 object ServiceStatus {
+    private const val PREFS_NAME = "mystar_agent_prefs"
+    private const val KEY_OVERLAY_ENABLED = "overlay_enabled"
+
     private val _connected = MutableStateFlow(AgentAccessibilityService.isBound())
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
+
+    private val _overlayEnabled = MutableStateFlow(true)
+    val overlayEnabled: StateFlow<Boolean> = _overlayEnabled.asStateFlow()
 
     private val _pendingGoal = MutableStateFlow(
         "설정 열어서 배터리 항목까지 들어가줘",
@@ -568,8 +584,22 @@ object ServiceStatus {
 
     private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
 
+    fun init(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        _overlayEnabled.value = prefs.getBoolean(KEY_OVERLAY_ENABLED, true)
+    }
+
     fun setConnected(value: Boolean) {
         _connected.value = value
+    }
+
+    fun setOverlayEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_OVERLAY_ENABLED, enabled)
+            .apply()
+        _overlayEnabled.value = enabled
+        AgentAccessibilityService.instance?.setOverlayVisible(enabled)
     }
 
     fun setPendingGoal(goal: String) {
