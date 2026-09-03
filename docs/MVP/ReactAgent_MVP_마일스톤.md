@@ -11,7 +11,12 @@
 ```
 M0 ✅ 셋업/권한 → M1 ✅ 관찰 → M2 ✅ 행동 → M3 ✅ LLM연동 → M4 ✅ 루프 → M5 ✅ 음성+시나리오
    (기반)         (읽기)    (조작)    (추론)      (자동화)   (통합)
+                                                                      ↓
+                         M6  speak → M7  back → M8  scroll → M9  ask_user → M10  다단계
+                            (낭독)      (복구)      (목록)       (HITL)        (검증)
 ```
+
+M6 이후는 [포스트 MVP 로드맵](./ReactAgent_포스트MVP.md).
 
 각 마일스톤의 **완료 기준(DoD)**을 통과해야 다음으로 진행한다.
 
@@ -133,7 +138,7 @@ M0 ✅ 셋업/권한 → M1 ✅ 관찰 → M2 ✅ 행동 → M3 ✅ LLM연동 �
 ## M5 ✅ — 음성 입력 + 목표 시나리오
 **목표:** 음성으로 카톡 메시지 전송까지 자동 수행.
 **규모:** ~1~2일
-**상태:** ✅ 완료 (2026-09-03) — `RecognizerIntent`(Locale.KOREA) → `run(goal)` 연결, 제네릭 도구 4개로 카톡 탐색·입력·전송 → `finish` 로그. HITL 전송 확인은 이후 로드맵.
+**상태:** ✅ 완료 (2026-09-03) — `RecognizerIntent`(Locale.KOREA) → `run(goal)` 연결, 제네릭 도구 4개로 카톡 탐색·입력·전송 → `finish` 로그. HITL 전송 확인은 M9 `ask_user`.
 
 **할 일**
 - `RecognizerIntent`로 음성 → 텍스트, 결과를 `run(goal=text)`로 전달 (한국어 `Locale.KOREA`)
@@ -173,4 +178,4 @@ M0 ✅ 셋업/권한 → M1 ✅ 관찰 → M2 ✅ 행동 → M3 ✅ LLM연동 �
 1. 음성 명령 한 마디로 실제 앱 조작이 자동 수행된다.
 2. 앱을 하드코딩하지 않은 **제네릭 도구 4개**(`open_app` / `tap_node` / `input_text` / `finish`) **+ ReAct 루프**로 동작한다(카톡 전용 로직 없음). 화면 관찰은 도구가 아니라 행동 후 자동 tool_result다.
 
-이후 로컬 모델·스킬·라우터·외부 트리거·HITL 안전장치는 별도 로드맵(기획서 §7)으로 넘긴다.
+이후 바로 할 일(speak · back · scroll · ask_user · 다단계 테스트)은 [포스트 MVP](./ReactAgent_포스트MVP.md). 로컬 모델·스킬·라우터·외부 트리거는 기획서 §7 하단.
