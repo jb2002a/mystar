@@ -15,9 +15,9 @@ object ToolRegistry {
     val definitions: List<ToolDefinition> = listOf(
         ToolDefinition(
             name = "open_app",
-            description = "패키지명으로 앱을 실행한다. 예: com.android.settings",
+            description = "앱을 실행한다. package는 시작 시 주입된 앱 목록의 패키지명을 사용한다.",
             parameters = objectSchema(
-                "package" to stringProp("실행할 앱의 패키지명"),
+                "package" to stringProp("실행할 앱의 패키지명 (앱 목록에서 선택)"),
                 required = listOf("package"),
             ),
         ),

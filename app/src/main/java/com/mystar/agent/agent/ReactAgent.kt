@@ -5,6 +5,7 @@ import com.mystar.agent.BuildConfig
 import com.mystar.agent.StabilizeOutcome
 import com.mystar.agent.llm.CloudLlmClient
 import com.mystar.agent.llm.LlmResult
+import com.mystar.agent.tool.AppCatalog
 import com.mystar.agent.tool.ToolRegistry
 import com.mystar.agent.tracing.LangSmithClient
 import java.util.concurrent.atomic.AtomicBoolean
@@ -112,11 +113,18 @@ class ReactAgent(
             val initialNodes = initialTree.lines().count { it.isNotBlank() }
             onEvent("ReAct: 초기 트리 1회 주입 준비 ($initialNodes nodes)")
 
-            // 영속 히스토리: system 규칙 + 목표만. 초기 트리는 라운드 1 요청에만 붙인다.
+            val appCatalog = withContext(Dispatchers.Default) {
+                AppCatalog.buildCatalog(service)
+            }
+            val catalogLines = appCatalog.lines().count { it.isNotBlank() }
+            onEvent("ReAct: 앱 카탈로그 1회 주입 준비 ($catalogLines apps)")
+
+            // 영속 히스토리: system 규칙 + 목표만. 초기 트리·카탈로그는 라운드 1 요청에만 붙인다.
             val messages = mutableListOf<JsonObject>(
                 llmClient.buildSystemMessage(),
                 llmClient.buildGoalUserMessage(goal),
             )
+            val initialAppCatalog = llmClient.buildInitialAppCatalogMessage(appCatalog)
             val initialScreenContext = llmClient.buildInitialScreenContextMessage(initialTree)
 
             for (round in 1..MAX_ROUNDS) {
@@ -125,9 +133,9 @@ class ReactAgent(
                 onEvent("ReAct: 라운드 $round/$MAX_ROUNDS")
 
                 val requestMessages = if (round == 1) {
-                    onEvent("ReAct: 초기 트리 1회 전달 (히스토리 비누적)")
-                    // system 규칙 다음에 초기 화면, 그다음 목표 user.
-                    listOf(messages[0], initialScreenContext) + messages.drop(1)
+                    onEvent("ReAct: 앱 카탈로그·초기 트리 1회 전달 (히스토리 비누적)")
+                    // system 규칙 다음에 앱 카탈로그, 초기 화면, 그다음 목표 user.
+                    listOf(messages[0], initialAppCatalog, initialScreenContext) + messages.drop(1)
                 } else {
                     messages
                 }
