@@ -12,11 +12,11 @@
 M0 ✅ 셋업/권한 → M1 ✅ 관찰 → M2 ✅ 행동 → M3 ✅ LLM연동 → M4 ✅ 루프 → M5 ✅ 음성+시나리오
    (기반)         (읽기)    (조작)    (추론)      (자동화)   (통합)
                                                                       ↓
-                         M6  speak → M7  back → M8  scroll → M9  web_search → M10  ask_user → M11  다단계
-                            (낭독)      (복구)      (목록)         (지식)          (HITL)         (검증)
+                         M6 ✅ speak → M7 ✅ back → M8 ✅ scroll → M9 ✅ web_search → M10  ask_user → M11  다단계
+                            (낭독)         (복구)         (목록)            (지식)          (HITL)         (검증)
 ```
 
-M6 이후는 [포스트 MVP 로드맵](./ReactAgent_포스트MVP.md).
+M6–M9는 [포스트 MVP 로드맵](./ReactAgent_포스트MVP.md) — ✅ 완료 (2026-09-04).
 
 각 마일스톤의 **완료 기준(DoD)**을 통과해야 다음으로 진행한다.
 
