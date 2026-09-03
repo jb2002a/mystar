@@ -2,19 +2,19 @@
 
 > MVP(M0–M5) 이후 **바로 구현할 항목**. 로컬 모델·스킬·라우터·외부 트리거는 여기 넣지 않는다. 그 목록은 [기획서 §7](./ReactAgent_MVP_기획.md#7-이후-확장-경로)에 그대로 둔다.
 >
-> **상태:** 예정 (2026-09-03 작성, 2026-09-04 M9 `web_search` 삽입). 구현 전 문서.
+> **상태:** 진행 중 — M6–M8 ✅ (2026-09-04). 다음: M9 `web_search`.
 
 ---
 
-## 현재 기준선 (M5)
+## 현재 기준선 (M8)
 
-음성 명령 → ReAct 루프 → 제네릭 도구 4개로 앱 조작까지는 된다.
+음성 명령 → ReAct 루프 → 제네릭 도구 6개 + `finish` TTS까지 된다.
 
 | 구분 | 지금 | 이 문서에서 채울 구멍 |
 |---|---|---|
-| 도구 | `open_app` / `tap_node` / `input_text` / `finish` | `speak` · `back` · `scroll` · `web_search` · `ask_user` |
-| 음성 | 입력만 (`RecognizerIntent`) | `finish` 결과를 TTS로 읽어주기 |
-| 탐색 | 앞으로만 (탭·앱 실행) | 뒤로가기, 목록 스크롤 |
+| 도구 | `open_app` / `tap_node` / `input_text` / `back` / `scroll` / `finish` | `web_search` · `ask_user` |
+| 음성 | 입력 (`RecognizerIntent`) + `finish` summary TTS | (M6 완료) |
+| 탐색 | 탭·앱 실행·뒤로가기·목록 스크롤 | (M7·M8 완료) |
 | 지식 | 구글/크롬을 열어 검색 | `web_search`로 스니펫을 텍스트로 받음 |
 | 사람 | 확인 없이 전송 | 정보 부족·위험 행동 HITL |
 | 검증 | 설정 배터리, 카톡 전송 | 기차 예매·회원가입 등 다단계 |
@@ -53,6 +53,7 @@ M6  speak → M7  back → M8  scroll → M9  web_search → M10  ask_user → M
 **목표:** 작업이 끝나면 사용자가 화면을 보지 않아도 결과를 듣는다.
 **규모:** ~0.5일
 **의존:** 없음. 기존 `finish(summary)`만 있으면 된다.
+**상태:** ✅ 완료 (2026-09-04) — `TtsHelper` + `finish` 성공 경로에서 summary 한국어 TTS 낭독, 홈 라벨 `M6 — finish 결과 TTS`
 
 ### 왜
 
@@ -78,10 +79,10 @@ M6  speak → M7  back → M8  scroll → M9  web_search → M10  ask_user → M
 
 ### 완료 기준 (DoD)
 
-- [ ] "설정 열어 배터리 알려줘"가 `finish`로 끝나면 summary가 스피커로 나온다
-- [ ] summary가 비어 있어도 TTS가 기본 문구를 읽고 루프는 정상 종료된다
-- [ ] TTS 실패 시 앱이 죽지 않고 로그에만 남는다
-- [ ] 홈 화면 왼쪽 상단 라벨이 `M6 — finish 결과 TTS`로 표시된다
+- [x] "설정 열어 배터리 알려줘"가 `finish`로 끝나면 summary가 스피커로 나온다
+- [x] summary가 비어 있어도 TTS가 기본 문구를 읽고 루프는 정상 종료된다
+- [x] TTS 실패 시 앱이 죽지 않고 로그에만 남는다
+- [x] 홈 화면 왼쪽 상단 라벨이 `M6 — finish 결과 TTS`로 표시된다
 
 **데모:** 음성으로 목표를 주고, 끝나면 화면을 보지 않은 채 결과 문장을 듣는다.
 
@@ -94,6 +95,7 @@ M6  speak → M7  back → M8  scroll → M9  web_search → M10  ask_user → M
 **목표:** 잘못된 화면에서 빠져나온다.
 **규모:** ~0.5일
 **의존:** 없음.
+**상태:** ✅ 완료 (2026-09-04) — `AgentAccessibilityService.performBack()` + `ToolRegistry` `back` 등록, 행동 후 안정화·트리 부착, 홈 라벨 `M7 — back`
 
 ### 왜
 
@@ -120,10 +122,10 @@ M6  speak → M7  back → M8  scroll → M9  web_search → M10  ask_user → M
 
 ### 완료 기준 (DoD)
 
-- [ ] 설정 하위 화면에서 `back`을 호출하면 이전 화면으로 돌아간다
-- [ ] 행동 후 최신 트리가 tool_result에 붙는다
-- [ ] LLM이 카톡 시나리오에서 불필요하게 `back`만 반복하지 않는다 (스모크)
-- [ ] 홈 화면 왼쪽 상단 라벨이 `M7 — back`으로 표시된다
+- [x] 설정 하위 화면에서 `back`을 호출하면 이전 화면으로 돌아간다
+- [x] 행동 후 최신 트리가 tool_result에 붙는다
+- [x] LLM이 카톡 시나리오에서 불필요하게 `back`만 반복하지 않는다 (스모크)
+- [x] 홈 화면 왼쪽 상단 라벨이 `M7 — back`으로 표시된다
 
 **데모:** "설정 배터리까지 들어갔다가 나와줘" — 들어가고 `back`으로 빠져나온다.
 
@@ -136,6 +138,7 @@ M6  speak → M7  back → M8  scroll → M9  web_search → M10  ask_user → M
 **목표:** 화면에 안 보이는 항목을 스크롤해서 찾는다.
 **규모:** ~1일
 **의존:** 트리에 이미 `scroll` 마크가 붙는다 (`AgentAccessibilityService`). 도구만 없다.
+**상태:** ✅ 완료 (2026-09-04) — `scrollNode` + scrollable 노드 참조 맵 + 제스처 폴백, `ToolRegistry` `scroll` 등록, 홈 라벨 `M8 — scroll`
 
 ### 왜
 
@@ -163,10 +166,10 @@ M6  speak → M7  back → M8  scroll → M9  web_search → M10  ask_user → M
 
 ### 완료 기준 (DoD)
 
-- [ ] 설정 목록에서 화면 밖 항목이 스크롤 후 트리에 나타난다
-- [ ] `direction=down` / `up`이 반대로 움직이지 않는다
-- [ ] 스크롤 후 이전 node id로 `tap_node`하면 실패하고, 새 트리 id로는 성공한다
-- [ ] 홈 화면 왼쪽 상단 라벨이 `M8 — scroll`으로 표시된다
+- [x] 설정 목록에서 화면 밖 항목이 스크롤 후 트리에 나타난다
+- [x] `direction=down` / `up`이 반대로 움직이지 않는다
+- [x] 스크롤 후 이전 node id로 `tap_node`하면 실패하고, 새 트리 id로는 성공한다
+- [x] 홈 화면 왼쪽 상단 라벨이 `M8 — scroll`으로 표시된다
 
 **데모:** "설정에서 (첫 화면에 없는 항목) 열어줘" — 스크롤 후 탭.
 
