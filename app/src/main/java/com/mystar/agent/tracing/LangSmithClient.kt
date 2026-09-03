@@ -49,6 +49,7 @@ class LangSmithClient(
         runType: String,
         inputs: JsonObject,
         parentRunId: String? = null,
+        extra: JsonObject? = null,
     ): String? {
         if (!enabled) return null
         val runId = UUID.randomUUID().toString()
@@ -61,6 +62,9 @@ class LangSmithClient(
             put("session_name", projectName)
             if (parentRunId != null) {
                 put("parent_run_id", parentRunId)
+            }
+            if (extra != null) {
+                put("extra", extra)
             }
         }
         postRun(body)

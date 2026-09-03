@@ -6,6 +6,7 @@ import com.mystar.agent.tool.ToolCall
 import com.mystar.agent.tool.ToolDefinition
 import com.mystar.agent.tool.ToolRegistry
 import com.mystar.agent.tracing.LangSmithClient
+import java.net.URI
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -143,6 +144,16 @@ class CloudLlmClient(
                     put("message_count", messages.size)
                 },
                 parentRunId = parentRunId,
+                extra = buildJsonObject {
+                    put(
+                        "metadata",
+                        buildJsonObject {
+                            put("ls_provider", langSmithProvider())
+                            put("ls_model_name", model)
+                            put("ls_model_type", "chat")
+                        },
+                    )
+                },
             )
             val startedAt = System.currentTimeMillis()
 
@@ -159,15 +170,17 @@ class CloudLlmClient(
                     val latencyMs = System.currentTimeMillis() - startedAt
                     Log.i(TAG, "LLM res ← HTTP ${response.code} (${responseBody.length} chars)")
                     logChunked(TAG, "LLM res body", responseBody)
+                    val usageMetadata = parseUsage(responseBody)
                     if (!response.isSuccessful) {
                         val snippet = responseBody.take(200).replace('\n', ' ')
                         val err = "HTTP ${response.code}: $snippet"
                         tracer.endRun(
                             llmRunId,
-                            outputs = buildJsonObject {
-                                put("error", err)
-                                put("latency_ms", latencyMs)
-                            },
+                            outputs = buildLlmRunOutputs(
+                                latencyMs = latencyMs,
+                                error = err,
+                                usageMetadata = usageMetadata,
+                            ),
                             error = err,
                         )
                         return@withContext LlmResult.Failure(err)
@@ -177,28 +190,21 @@ class CloudLlmClient(
                         is LlmResult.Success -> {
                             tracer.endRun(
                                 llmRunId,
-                                outputs = buildJsonObject {
-                                    put("model", model)
-                                    put("latency_ms", latencyMs)
-                                    put("tool_name", parsed.toolCall.name)
-                                    put(
-                                        "tool_args",
-                                        LangSmithClient.sanitizeToolArgs(
-                                            parsed.toolCall.name,
-                                            parsed.toolCall.args,
-                                        ),
-                                    )
-                                    put("tool_call_id", parsed.toolCall.id)
-                                },
+                                outputs = buildLlmRunOutputs(
+                                    latencyMs = latencyMs,
+                                    toolCall = parsed.toolCall,
+                                    usageMetadata = usageMetadata,
+                                ),
                             )
                         }
                         is LlmResult.Failure -> {
                             tracer.endRun(
                                 llmRunId,
-                                outputs = buildJsonObject {
-                                    put("error", parsed.message)
-                                    put("latency_ms", latencyMs)
-                                },
+                                outputs = buildLlmRunOutputs(
+                                    latencyMs = latencyMs,
+                                    error = parsed.message,
+                                    usageMetadata = usageMetadata,
+                                ),
                                 error = parsed.message,
                             )
                         }
@@ -252,6 +258,64 @@ class CloudLlmClient(
                     )
                 },
             )
+        }
+    }
+
+    private fun langSmithProvider(): String {
+        val host = try {
+            URI(baseUrl.trim()).host?.lowercase().orEmpty()
+        } catch (_: Exception) {
+            baseUrl.lowercase()
+        }
+        return when {
+            host.contains("anthropic") -> "anthropic"
+            host.contains("openai") -> "openai"
+            else -> "openai"
+        }
+    }
+
+    private fun parseUsage(responseBody: String): JsonObject? {
+        val root = try {
+            json.parseToJsonElement(responseBody).jsonObject
+        } catch (_: Exception) {
+            return null
+        }
+        val usage = root["usage"]?.jsonObject ?: return null
+        val inputTokens = usage["prompt_tokens"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+            ?: usage["input_tokens"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+        val outputTokens = usage["completion_tokens"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+            ?: usage["output_tokens"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+        if (inputTokens == null && outputTokens == null) return null
+        val totalTokens = usage["total_tokens"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+            ?: listOfNotNull(inputTokens, outputTokens).takeIf { it.isNotEmpty() }?.sum()
+        return buildJsonObject {
+            inputTokens?.let { put("input_tokens", it) }
+            outputTokens?.let { put("output_tokens", it) }
+            totalTokens?.let { put("total_tokens", it) }
+        }
+    }
+
+    private fun buildLlmRunOutputs(
+        latencyMs: Long,
+        toolCall: ToolCall? = null,
+        error: String? = null,
+        usageMetadata: JsonObject? = null,
+    ): JsonObject = buildJsonObject {
+        put("model", model)
+        put("latency_ms", latencyMs)
+        if (toolCall != null) {
+            put("tool_name", toolCall.name)
+            put(
+                "tool_args",
+                LangSmithClient.sanitizeToolArgs(toolCall.name, toolCall.args),
+            )
+            put("tool_call_id", toolCall.id)
+        }
+        if (error != null) {
+            put("error", error)
+        }
+        if (usageMetadata != null) {
+            put("usage_metadata", usageMetadata)
         }
     }
 
