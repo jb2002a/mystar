@@ -1,9 +1,16 @@
 package com.mystar.agent
 
+import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.os.Bundle
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -26,7 +33,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
@@ -44,11 +50,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mystar.agent.agent.ReactAgent
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -75,6 +83,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun AgentHomeScreen() {
+    val context = LocalContext.current
     val connected by ServiceStatus.connected.collectAsStateWithLifecycle()
     val logs by ServiceStatus.logs.collectAsStateWithLifecycle()
     val pendingGoal by ServiceStatus.pendingGoal.collectAsStateWithLifecycle()
@@ -85,6 +94,66 @@ private fun AgentHomeScreen() {
     var param2 by remember { mutableStateOf("") }
     var message by remember { mutableStateOf("") }
     var reactRunning by remember { mutableStateOf(false) }
+
+    fun runGoal(goal: String) {
+        reactRunning = true
+        scope.launch {
+            try {
+                reactAgent.run(goal) { msg -> ServiceStatus.appendLog(msg) }
+            } finally {
+                reactRunning = false
+            }
+        }
+    }
+
+    val speechLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode != Activity.RESULT_OK) {
+            ServiceStatus.appendLog("음성: 취소 또는 실패 (resultCode=${result.resultCode})")
+            return@rememberLauncherForActivityResult
+        }
+        val spoken = result.data
+            ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            ?.firstOrNull()
+            ?.trim()
+            .orEmpty()
+        if (spoken.isEmpty()) {
+            ServiceStatus.appendLog("음성: 인식 결과가 비어 있음")
+            return@rememberLauncherForActivityResult
+        }
+        ServiceStatus.setPendingGoal(spoken)
+        ServiceStatus.appendLog("음성 인식: $spoken")
+        if (!connected) {
+            ServiceStatus.appendLog("음성: 접근성 서비스 미연결 — 실행 생략")
+            return@rememberLauncherForActivityResult
+        }
+        if (reactRunning) {
+            ServiceStatus.appendLog("음성: 이미 실행 중 — 실행 생략")
+            return@rememberLauncherForActivityResult
+        }
+        runGoal(spoken)
+    }
+
+    fun startSpeechRecognition() {
+        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+            ServiceStatus.appendLog("음성: 인식 제공자 없음")
+            return
+        }
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(
+                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+            )
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.KOREA.toLanguageTag())
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "목표를 말씀해 주세요")
+        }
+        try {
+            speechLauncher.launch(intent)
+        } catch (e: ActivityNotFoundException) {
+            ServiceStatus.appendLog("음성: 인식 Activity 없음 — ${e.message}")
+        }
+    }
 
     LaunchedEffect(logs.size) {
         if (logs.isNotEmpty()) {
@@ -107,7 +176,7 @@ private fun AgentHomeScreen() {
             fontWeight = FontWeight.Bold,
         )
         Text(
-            text = "M4 — ReAct 루프",
+            text = "M5 — 음성 + 자동 전송",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -163,24 +232,14 @@ private fun AgentHomeScreen() {
                     enabled = !reactRunning,
                 )
                 Button(
-                    onClick = {
-                        val goal = pendingGoal
-                        reactRunning = true
-                        scope.launch {
-                            try {
-                                reactAgent.run(goal) { msg -> ServiceStatus.appendLog(msg) }
-                            } finally {
-                                reactRunning = false
-                            }
-                        }
-                    },
+                    onClick = { runGoal(pendingGoal) },
                     enabled = connected && !reactRunning && pendingGoal.isNotBlank(),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(if (reactRunning) "실행 중…" else "ReAct 루프 실행")
                 }
                 Text(
-                    text = "데모: \"설정 열어서 배터리 항목까지 들어가줘\" → 오버레이 \"ReAct\"로도 실행 가능",
+                    text = "데모: 마이크 또는 텍스트로 \"카카오톡에서 딸한테 사랑한다고 보내줘\"",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -299,20 +358,22 @@ private fun AgentHomeScreen() {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Button(
-                onClick = { /* M5: RecognizerIntent 연결 */ },
-                enabled = false,
+                onClick = { startSpeechRecognition() },
+                enabled = connected && !reactRunning,
                 shape = CircleShape,
                 modifier = Modifier.size(96.dp),
-                colors = ButtonDefaults.buttonColors(
-                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                ),
             ) {
                 Text(text = "🎤", style = MaterialTheme.typography.headlineMedium)
             }
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "마이크 (M5에서 활성화)",
+                text = if (reactRunning) {
+                    "실행 중…"
+                } else if (!connected) {
+                    "마이크 (접근성 연결 필요)"
+                } else {
+                    "마이크 — 목표를 말하면 ReAct 실행"
+                },
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
