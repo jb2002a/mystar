@@ -42,10 +42,13 @@ enum class StabilizeOutcome {
  * M1: 접근성 트리 관찰(getScreenTree) + 덤프 오버레이.
  * M2: tapNode / inputText 행동 API.
  * M4: 이벤트 quiet window 안정화 + 오버레이 강제 종료.
+ * M7: performBack. M8: scrollNode + scrollable 노드 참조 맵.
  */
 class AgentAccessibilityService : AccessibilityService() {
 
     private val nodeCoords = ConcurrentHashMap<String, Point>()
+    /** M8: 마지막 getScreenTree()의 scrollable node id → 스크롤 액션용 노드 복사본. */
+    private val nodeScrollRefs = ConcurrentHashMap<String, AccessibilityNodeInfo>()
     private val nodeCounter = AtomicInteger(0)
 
     /** WINDOW_STATE/CONTENT_CHANGED 마지막 수신 시각 (elapsedRealtime). */
@@ -118,6 +121,7 @@ class AgentAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         removeDumpOverlay()
+        clearScrollRefs()
         if (instance === this) {
             instance = null
             ServiceStatus.setConnected(false)
@@ -211,6 +215,70 @@ class AgentAccessibilityService : AccessibilityService() {
         } finally {
             target.recycle()
         }
+    }
+
+    /** M7: 시스템 뒤로가기. */
+    fun performBack(): Boolean {
+        val ok = performGlobalAction(GLOBAL_ACTION_BACK)
+        if (ok) {
+            ServiceStatus.appendLog("back: OK")
+            Log.i(TAG, "performBack: OK")
+        } else {
+            ServiceStatus.appendLog("back: 실패")
+            Log.w(TAG, "performBack: failed")
+        }
+        return ok
+    }
+
+    /**
+     * M8: scroll 마크가 있는 node id로 목록을 한 칸 스크롤한다.
+     * @param direction "down" = 아래로 더 보기, "up" = 위로 되돌리기
+     */
+    fun scrollNode(nodeId: String, direction: String): Boolean {
+        val id = nodeId.replace("[", "").replace("]", "").trim()
+        if (id.isEmpty()) {
+            ServiceStatus.appendLog("scrollNode: node id가 비어 있음")
+            Log.w(TAG, "scrollNode: empty node id")
+            return false
+        }
+        val dir = direction.trim().lowercase()
+        if (dir != "up" && dir != "down") {
+            ServiceStatus.appendLog("scrollNode: direction은 up/down만 가능 ($direction)")
+            Log.w(TAG, "scrollNode: invalid direction $direction")
+            return false
+        }
+        val scrollNode = nodeScrollRefs[id]
+        if (scrollNode == null) {
+            ServiceStatus.appendLog("scrollNode: $id 없음 또는 scroll 불가. 먼저 덤프하세요")
+            Log.w(TAG, "scrollNode: node $id not scrollable")
+            return false
+        }
+        val point = getNodeCoordinates(id)
+        if (point == null) {
+            ServiceStatus.appendLog("scrollNode: $id 좌표 없음")
+            Log.w(TAG, "scrollNode: no coords for $id")
+            return false
+        }
+
+        val scrollAction = if (dir == "down") {
+            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+        } else {
+            AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+        }
+        var ok = scrollNode.performAction(scrollAction)
+        var method = "action"
+        if (!ok) {
+            method = "gesture"
+            ok = performScrollSwipe(point.x, point.y, dir)
+        }
+        if (ok) {
+            ServiceStatus.appendLog("scrollNode: $id $dir ($method) OK")
+            Log.i(TAG, "scrollNode: $id $dir ($method) OK")
+        } else {
+            ServiceStatus.appendLog("scrollNode: $id $dir 실패")
+            Log.w(TAG, "scrollNode: $id $dir failed")
+        }
+        return ok
     }
 
     /**
@@ -311,6 +379,29 @@ class AgentAccessibilityService : AccessibilityService() {
         return dispatchGestureSync(gesture)
     }
 
+    /** M8 폴백: 노드 중심에서 짧은 스와이프로 스크롤. */
+    private fun performScrollSwipe(cx: Int, cy: Int, direction: String): Boolean {
+        val delta = SCROLL_SWIPE_DELTA_PX
+        val (startY, endY) = if (direction == "down") {
+            cy + delta to cy - delta
+        } else {
+            cy - delta to cy + delta
+        }
+        val path = Path()
+        path.moveTo(cx.toFloat(), startY.toFloat())
+        path.lineTo(cx.toFloat(), endY.toFloat())
+        val stroke = GestureDescription.StrokeDescription(path, 0, SCROLL_SWIPE_DURATION_MS)
+        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+        return dispatchGestureSync(gesture)
+    }
+
+    private fun clearScrollRefs() {
+        for ((_, node) in nodeScrollRefs) {
+            node.recycle()
+        }
+        nodeScrollRefs.clear()
+    }
+
     private fun dispatchGestureSync(gesture: GestureDescription): Boolean {
         val latch = CountDownLatch(1)
         val result = AtomicBoolean(false)
@@ -351,6 +442,7 @@ class AgentAccessibilityService : AccessibilityService() {
      */
     fun getScreenTree(): String? {
         val root = rootInActiveWindow ?: return null
+        clearScrollRefs()
         nodeCoords.clear()
         nodeCounter.set(0)
         val sb = StringBuilder()
@@ -419,7 +511,10 @@ class AgentAccessibilityService : AccessibilityService() {
 
             if (node.isClickable) line.append(" tap")
             if (node.isEditable) line.append(" edit")
-            if (node.isScrollable) line.append(" scroll")
+            if (node.isScrollable) {
+                line.append(" scroll")
+                nodeScrollRefs[nodeId] = AccessibilityNodeInfo.obtain(node)
+            }
             if (node.isCheckable) line.append(if (node.isChecked) " on" else " off")
 
             sb.append(line).append('\n')
@@ -551,6 +646,8 @@ class AgentAccessibilityService : AccessibilityService() {
         private const val EDITABLE_RETRY_COUNT = 5
         private const val SET_TEXT_RETRY_COUNT = 3
         private const val RETRY_SLEEP_MS = 200L
+        private const val SCROLL_SWIPE_DELTA_PX = 150
+        private const val SCROLL_SWIPE_DURATION_MS = 250L
         const val QUIET_WINDOW_MS = 400L
         const val HARD_TIMEOUT_MS = 2500L
         private const val STABILIZE_POLL_MS = 50L

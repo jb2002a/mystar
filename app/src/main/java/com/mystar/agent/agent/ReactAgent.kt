@@ -22,6 +22,7 @@ import kotlinx.serialization.json.put
 
 /**
  * M4: reason → act → (안정화 + 최신 트리 tool_result) 반복.
+ * 행동 도구: open_app / tap_node / input_text / back / scroll (finish 제외).
  */
 class ReactAgent(
     private val llmClient: CloudLlmClient = CloudLlmClient(),

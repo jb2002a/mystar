@@ -2,6 +2,7 @@ package com.mystar.agent.tool
 
 import android.content.Intent
 import com.mystar.agent.AgentAccessibilityService
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -42,6 +43,24 @@ object ToolRegistry {
             ),
         ),
         ToolDefinition(
+            name = "back",
+            description = "시스템 뒤로가기로 현재 앱 화면을 한 단계 되돌린다.",
+            parameters = objectSchema(
+                "reason" to reasonProp(),
+                required = listOf("reason"),
+            ),
+        ),
+        ToolDefinition(
+            name = "scroll",
+            description = "최신 화면 트리에서 scroll 마크가 있는 node id로 목록을 한 칸 스크롤한다.",
+            parameters = objectSchema(
+                "node_id" to stringProp("scroll 마크가 있는 node id"),
+                "direction" to enumProp("스크롤 방향", listOf("up", "down")),
+                "reason" to reasonProp(),
+                required = listOf("node_id", "direction", "reason"),
+            ),
+        ),
+        ToolDefinition(
             name = "finish",
             description = "목표가 완료되었음을 선언하고 작업을 종료한다.",
             parameters = objectSchema(
@@ -63,6 +82,8 @@ object ToolRegistry {
             "open_app" -> executeOpenApp(call.args)
             "tap_node" -> executeTapNode(call.args)
             "input_text" -> executeInputText(call.args)
+            "back" -> executeBack(call.args)
+            "scroll" -> executeScroll(call.args)
             "finish" -> executeFinish(call.args)
             else -> ToolResult(false, "알 수 없는 도구: ${call.name}")
         }
@@ -122,6 +143,35 @@ object ToolRegistry {
         }
     }
 
+    private fun executeBack(@Suppress("UNUSED_PARAMETER") args: JsonObject): ToolResult {
+        val service = AgentAccessibilityService.instance
+            ?: return ToolResult(false, "접근성 서비스 미연결")
+        val ok = service.performBack()
+        return if (ok) {
+            ToolResult(true, "back OK")
+        } else {
+            ToolResult(false, "back 실패")
+        }
+    }
+
+    private fun executeScroll(args: JsonObject): ToolResult {
+        val nodeId = requireString(args, "node_id")
+            ?: return ToolResult(false, "node_id 인자 필요")
+        val direction = requireString(args, "direction")
+            ?: return ToolResult(false, "direction 인자 필요")
+        if (direction != "up" && direction != "down") {
+            return ToolResult(false, "direction은 up 또는 down만 가능")
+        }
+        val service = AgentAccessibilityService.instance
+            ?: return ToolResult(false, "접근성 서비스 미연결")
+        val ok = service.scrollNode(nodeId, direction)
+        return if (ok) {
+            ToolResult(true, "scroll($nodeId, $direction) OK")
+        } else {
+            ToolResult(false, "scroll($nodeId, $direction) 실패 (scroll 마크 없음 또는 스크롤 불가)")
+        }
+    }
+
     private fun executeFinish(args: JsonObject): ToolResult {
         val summary = args["summary"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
         val message = if (summary.isEmpty()) "finish" else "finish: $summary"
@@ -158,6 +208,12 @@ object ToolRegistry {
     private fun stringProp(description: String): JsonObject = buildJsonObject {
         put("type", "string")
         put("description", description)
+    }
+
+    private fun enumProp(description: String, values: List<String>): JsonObject = buildJsonObject {
+        put("type", "string")
+        put("description", description)
+        put("enum", JsonArray(values.map { JsonPrimitive(it) }))
     }
 
     private fun reasonProp(): JsonObject = stringProp("이 도구를 지금 고른 이유. 한 문장.")

@@ -204,7 +204,7 @@ private fun AgentHomeScreen(onSpeakFinish: (String) -> Unit) {
             fontWeight = FontWeight.Bold,
         )
         Text(
-            text = "M6 — finish 결과 TTS",
+            text = "M8 — scroll",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -361,6 +361,49 @@ private fun AgentHomeScreen(onSpeakFinish: (String) -> Unit) {
                         modifier = Modifier.weight(1f),
                     ) {
                         Text("입력 (input_text)")
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Button(
+                        onClick = {
+                            scope.launch(Dispatchers.Default) {
+                                AgentAccessibilityService.instance?.performBack()
+                                    ?: ServiceStatus.appendLog("뒤로: 서비스 미연결")
+                            }
+                        },
+                        enabled = connected,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("뒤로 (back)")
+                    }
+                    Button(
+                        onClick = {
+                            val id = param1
+                            scope.launch(Dispatchers.Default) {
+                                AgentAccessibilityService.instance?.scrollNode(id, "down")
+                                    ?: ServiceStatus.appendLog("스크롤: 서비스 미연결")
+                            }
+                        },
+                        enabled = connected,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("스크롤↓")
+                    }
+                    Button(
+                        onClick = {
+                            val id = param1
+                            scope.launch(Dispatchers.Default) {
+                                AgentAccessibilityService.instance?.scrollNode(id, "up")
+                                    ?: ServiceStatus.appendLog("스크롤: 서비스 미연결")
+                            }
+                        },
+                        enabled = connected,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("스크롤↑")
                     }
                 }
                 Button(
