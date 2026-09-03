@@ -33,6 +33,18 @@ M6  speak → M7  back → M8  scroll → M9  ask_user → M10  다단계 시나
 
 각 마일스톤은 **독립적으로 실행·검증 가능한 상태**로 끝낸다.
 
+### 버전 표기 (구현 시 필수)
+
+마일스톤을 **구현 완료로 끝낼 때마다** 홈 화면 왼쪽 상단 마일스톤 라벨을 해당 단계로 갱신한다. 기능만 넣고 라벨을 그대로 두지 않는다.
+
+| 항목 | 위치 | 형식 예 |
+|---|---|---|
+| 홈 화면 마일스톤 라벨 | `app/src/main/java/com/mystar/agent/MainActivity.kt` — `AgentHomeScreen` 제목 아래 `Text` | `M6 — finish 결과 TTS`, `M7 — back` |
+| (선택) 앱 버전명 | `app/build.gradle.kts` — `versionName` | 포스트 MVP 전체를 묶어 올릴 때만 조정 |
+
+- 라벨 문구는 **마일스톤 번호 + 한 줄 요약**으로 맞춘다.
+- 각 마일스톤 **할 일**·**완료 기준(DoD)** 에 버전 갱신 체크가 있으면, 구현 PR/커밋에 포함했는지 함께 확인한다.
+
 ---
 
 ## M6 — `speak`: finish 결과 읽어주기
@@ -61,12 +73,14 @@ M6  speak → M7  back → M8  scroll → M9  ask_user → M10  다단계 시나
 - `TextToSpeech` 초기화·해제 (Activity/`Application` 수명에 맞춤)
 - `finish` 성공 경로에서 `summary`를 읽어줌
 - 시스템 프롬프트: `finish`의 `summary`는 사용자에게 그대로 읽어줄 한두 문장으로 쓰라고 명시
+- 홈 화면 마일스톤 라벨을 `M6 — finish 결과 TTS`로 갱신 (`MainActivity.kt`)
 
 ### 완료 기준 (DoD)
 
 - [ ] "설정 열어 배터리 알려줘"가 `finish`로 끝나면 summary가 스피커로 나온다
 - [ ] summary가 비어 있어도 TTS가 기본 문구를 읽고 루프는 정상 종료된다
 - [ ] TTS 실패 시 앱이 죽지 않고 로그에만 남는다
+- [ ] 홈 화면 왼쪽 상단 라벨이 `M6 — finish 결과 TTS`로 표시된다
 
 **데모:** 음성으로 목표를 주고, 끝나면 화면을 보지 않은 채 결과 문장을 듣는다.
 
@@ -101,12 +115,14 @@ M6  speak → M7  back → M8  scroll → M9  ask_user → M10  다단계 시나
 - `AgentAccessibilityService`에 `performBack()`
 - `ToolRegistry`에 `back` 등록·실행
 - 시스템 프롬프트: 잘못된 화면·필요 없는 다이얼로그면 `back`. 목표 앱을 바꿀 때는 `open_app`
+- 홈 화면 마일스톤 라벨을 `M7 — back`으로 갱신 (`MainActivity.kt`)
 
 ### 완료 기준 (DoD)
 
 - [ ] 설정 하위 화면에서 `back`을 호출하면 이전 화면으로 돌아간다
 - [ ] 행동 후 최신 트리가 tool_result에 붙는다
 - [ ] LLM이 카톡 시나리오에서 불필요하게 `back`만 반복하지 않는다 (스모크)
+- [ ] 홈 화면 왼쪽 상단 라벨이 `M7 — back`으로 표시된다
 
 **데모:** "설정 배터리까지 들어갔다가 나와줘" — 들어가고 `back`으로 빠져나온다.
 
