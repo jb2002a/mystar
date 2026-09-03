@@ -26,24 +26,21 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import com.mystar.agent.agent.ReactAgent
 import com.mystar.agent.tool.ToolRegistry
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 
 enum class StabilizeOutcome {
     QUIET,
     HARD_TIMEOUT,
+    ABORTED,
 }
 
 /**
  * M1: 접근성 트리 관찰(getScreenTree) + 덤프 오버레이.
  * M2: tapNode / inputText 행동 API.
- * M4: 이벤트 quiet window 안정화 + ReactAgent 오버레이 트리거.
+ * M4: 이벤트 quiet window 안정화 + 오버레이 강제 종료.
  */
 class AgentAccessibilityService : AccessibilityService() {
 
@@ -55,7 +52,6 @@ class AgentAccessibilityService : AccessibilityService() {
 
     private var overlayDumpButton: Button? = null
     private var overlayLlmButton: Button? = null
-    private val overlayScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -84,9 +80,13 @@ class AgentAccessibilityService : AccessibilityService() {
     suspend fun waitForUiSettle(
         quietMs: Long = QUIET_WINDOW_MS,
         hardTimeoutMs: Long = HARD_TIMEOUT_MS,
+        aborted: () -> Boolean = { false },
     ): StabilizeOutcome {
         val start = SystemClock.elapsedRealtime()
         while (true) {
+            if (aborted()) {
+                return StabilizeOutcome.ABORTED
+            }
             val now = SystemClock.elapsedRealtime()
             val elapsed = now - start
             if (elapsed >= hardTimeoutMs) {
@@ -462,17 +462,14 @@ class AgentAccessibilityService : AccessibilityService() {
             setOnClickListener { dumpScreenTreeToLog() }
         }
         val llmButton = Button(this).apply {
-            text = "ReAct"
+            text = "Finish"
             textSize = 12f
             setPadding(24, 12, 24, 12)
             setOnClickListener {
-                val goal = ServiceStatus.pendingGoal.value
-                if (goal.isBlank()) {
-                    ServiceStatus.appendLog("ReAct: 앱에서 목표를 먼저 입력하세요")
-                    return@setOnClickListener
-                }
-                overlayScope.launch {
-                    ReactAgent.shared.run(goal) { msg -> ServiceStatus.appendLog(msg) }
+                if (ReactAgent.shared.requestStop()) {
+                    ServiceStatus.appendLog("ReAct: 강제 종료 요청")
+                } else {
+                    ServiceStatus.appendLog("ReAct: 실행 중이 아님")
                 }
             }
         }
@@ -508,7 +505,7 @@ class AgentAccessibilityService : AccessibilityService() {
             wm.addView(llmButton, llmParams)
             overlayDumpButton = dumpButton
             overlayLlmButton = llmButton
-            ServiceStatus.appendLog("오버레이 표시됨 (덤프 / ReAct)")
+            ServiceStatus.appendLog("오버레이 표시됨 (덤프 / Finish)")
             Log.i(TAG, "overlay shown")
         } catch (e: Exception) {
             ServiceStatus.appendLog("오버레이 실패: ${e.message}")

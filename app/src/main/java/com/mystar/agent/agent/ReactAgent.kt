@@ -24,7 +24,15 @@ class ReactAgent(
     private val tracer: LangSmithClient = LangSmithClient.shared,
 ) {
     private val running = AtomicBoolean(false)
+    private val stopRequested = AtomicBoolean(false)
     private val mutex = Mutex()
+
+    /** 실행 중이면 다음 체크 지점에서 루프를 강제 종료한다. */
+    fun requestStop(): Boolean {
+        if (!running.get()) return false
+        stopRequested.set(true)
+        return true
+    }
 
     /**
      * @param onEvent 라운드/도구/안정화/종료 로그를 UI에 스트리밍
@@ -38,10 +46,12 @@ class ReactAgent(
             onEvent("ReAct: 이미 실행 중")
             return false
         }
+        stopRequested.set(false)
         try {
             execute(goal.trim(), onEvent)
         } finally {
             running.set(false)
+            stopRequested.set(false)
         }
     }
 
@@ -81,6 +91,14 @@ class ReactAgent(
         var success = false
         var endReason = "unknown"
 
+        fun cancelled(): Boolean {
+            if (!stopRequested.get()) return false
+            onEvent("ReAct: 강제 종료됨")
+            endReason = "cancelled"
+            endError = "forced stop"
+            return true
+        }
+
         try {
             val initialTree = withContext(Dispatchers.Default) {
                 service.getScreenTree()
@@ -102,6 +120,7 @@ class ReactAgent(
             val initialScreenContext = llmClient.buildInitialScreenContextMessage(initialTree)
 
             for (round in 1..MAX_ROUNDS) {
+                if (cancelled()) return false
                 completedRounds = round
                 onEvent("ReAct: 라운드 $round/$MAX_ROUNDS")
 
@@ -122,6 +141,8 @@ class ReactAgent(
                         return false
                     }
                 }
+
+                if (cancelled()) return false
 
                 messages.add(assistantMessage)
                 onEvent("ReAct: 선택 ${toolCall.name}${toolCall.args}")
@@ -163,12 +184,12 @@ class ReactAgent(
                     return actionResult.success
                 }
 
+                if (cancelled()) return false
+
                 onEvent("ReAct: 안정화 대기 (quiet=${AgentAccessibilityService.QUIET_WINDOW_MS}ms / hard=${AgentAccessibilityService.HARD_TIMEOUT_MS}ms)")
-                val outcome = service.waitForUiSettle()
-                val settleLabel = when (outcome) {
-                    StabilizeOutcome.QUIET -> "quiet"
-                    StabilizeOutcome.HARD_TIMEOUT -> "hard timeout"
-                }
+                val outcome = service.waitForUiSettle(aborted = { stopRequested.get() })
+                if (cancelled()) return false
+                val settleLabel = if (outcome == StabilizeOutcome.QUIET) "quiet" else "hard timeout"
                 onEvent("ReAct: 안정화 종료 ($settleLabel)")
 
                 val latestTree = withContext(Dispatchers.Default) {
