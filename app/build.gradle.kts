@@ -22,6 +22,7 @@ val langsmithEndpoint: String = localProperties.getProperty(
     "LANGSMITH_ENDPOINT",
     "https://api.smith.langchain.com",
 )
+val webSearchApiKey: String = localProperties.getProperty("WEB_SEARCH_API_KEY", "")
 
 fun escapeBuildConfig(value: String): String = value.replace("\\", "\\\\").replace("\"", "\\\"")
 
@@ -46,6 +47,7 @@ android {
             "LANGSMITH_ENDPOINT",
             "\"${escapeBuildConfig(langsmithEndpoint)}\"",
         )
+        buildConfigField("String", "WEB_SEARCH_API_KEY", "\"${escapeBuildConfig(webSearchApiKey)}\"")
     }
 
     buildTypes {

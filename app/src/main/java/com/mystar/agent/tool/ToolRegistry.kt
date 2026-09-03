@@ -2,6 +2,7 @@ package com.mystar.agent.tool
 
 import android.content.Intent
 import com.mystar.agent.AgentAccessibilityService
+import com.mystar.agent.search.WebSearchClient
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -61,6 +62,15 @@ object ToolRegistry {
             ),
         ),
         ToolDefinition(
+            name = "web_search",
+            description = "웹 검색 API로 날씨·시세·사실 등 웹 정보를 가져온다. 구글/크롬을 열지 않는다. 카톡 친구·설정 항목 등 앱 안 검색에는 쓰지 않는다.",
+            parameters = objectSchema(
+                "query" to stringProp("검색어"),
+                "reason" to reasonProp(),
+                required = listOf("query", "reason"),
+            ),
+        ),
+        ToolDefinition(
             name = "finish",
             description = "목표가 완료되었음을 선언하고 작업을 종료한다.",
             parameters = objectSchema(
@@ -84,6 +94,7 @@ object ToolRegistry {
             "input_text" -> executeInputText(call.args)
             "back" -> executeBack(call.args)
             "scroll" -> executeScroll(call.args)
+            "web_search" -> executeWebSearch(call.args)
             "finish" -> executeFinish(call.args)
             else -> ToolResult(false, "알 수 없는 도구: ${call.name}")
         }
@@ -170,6 +181,12 @@ object ToolRegistry {
         } else {
             ToolResult(false, "scroll($nodeId, $direction) 실패 (scroll 마크 없음 또는 스크롤 불가)")
         }
+    }
+
+    private fun executeWebSearch(args: JsonObject): ToolResult {
+        val query = requireString(args, "query")
+            ?: return ToolResult(false, "query 인자 필요")
+        return WebSearchClient.shared.search(query)
     }
 
     private fun executeFinish(args: JsonObject): ToolResult {

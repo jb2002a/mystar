@@ -204,7 +204,7 @@ private fun AgentHomeScreen(onSpeakFinish: (String) -> Unit) {
             fontWeight = FontWeight.Bold,
         )
         Text(
-            text = "M8 — scroll",
+            text = "M9 — web_search",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

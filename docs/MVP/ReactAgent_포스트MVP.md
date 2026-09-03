@@ -2,22 +2,22 @@
 
 > MVP(M0–M5) 이후 **바로 구현할 항목**. 로컬 모델·스킬·라우터·외부 트리거는 여기 넣지 않는다. 그 목록은 [기획서 §7](./ReactAgent_MVP_기획.md#7-이후-확장-경로)에 그대로 둔다.
 >
-> **상태:** 진행 중 — M6–M8 ✅ (2026-09-04). 다음: M9 `web_search`.
+> **상태:** 진행 중 — M6–M9 ✅ (2026-09-04). 다음: M10 `ask_user`.
 
 ---
 
-## 현재 기준선 (M8)
+## 현재 기준선 (M9)
 
-음성 명령 → ReAct 루프 → 제네릭 도구 6개 + `finish` TTS까지 된다.
+음성 명령 → ReAct 루프 → 제네릭 도구 7개 + `finish` TTS까지 된다.
 
 | 구분 | 지금 | 이 문서에서 채울 구멍 |
 |---|---|---|
-| 도구 | `open_app` / `tap_node` / `input_text` / `back` / `scroll` / `finish` | `web_search` · `ask_user` |
+| 도구 | `open_app` / `tap_node` / `input_text` / `back` / `scroll` / `web_search` / `finish` | `ask_user` |
 | 음성 | 입력 (`RecognizerIntent`) + `finish` summary TTS | (M6 완료) |
 | 탐색 | 탭·앱 실행·뒤로가기·목록 스크롤 | (M7·M8 완료) |
-| 지식 | 구글/크롬을 열어 검색 | `web_search`로 스니펫을 텍스트로 받음 |
+| 지식 | `web_search`로 스니펫을 텍스트로 받음 | (M9 완료) |
 | 사람 | 확인 없이 전송 | 정보 부족·위험 행동 HITL |
-| 검증 | 설정 배터리, 카톡 전송 | 기차 예매·회원가입 등 다단계 |
+| 검증 | 설정 배터리, 카톡 전송, 웹 조회 | 기차 예매·회원가입 등 다단계 |
 
 `MAX_ROUNDS = 10`. 다단계 화면은 모자랄 수 있다. 라운드 상한은 시나리오 테스트와 같이 조정한다.
 
@@ -182,6 +182,7 @@ M6  speak → M7  back → M8  scroll → M9  web_search → M10  ask_user → M
 **목표:** 조회 목표에서 구글·크롬을 조작하지 않고, 검색 결과를 텍스트로 받는다.
 **규모:** ~0.5–1일
 **의존:** 없음. 화면 트리·접근성 서비스와 무관하다.
+**상태:** ✅ 완료 (2026-09-04) — `WebSearchClient`(Brave Search API) + `ToolRegistry` `web_search` + `ReactAgent` 트리 생략, 홈 라벨 `M9 — web_search`
 
 ### 왜
 
@@ -217,11 +218,11 @@ M6  speak → M7  back → M8  scroll → M9  web_search → M10  ask_user → M
 
 ### 완료 기준 (DoD)
 
-- [ ] "오늘 서울 날씨 알려줘"가 구글/크롬을 열지 않고 `web_search` → `finish`로 끝난다
-- [ ] summary가 검색 스니펫에 있는 내용을 말하고, TTS로 읽힌다 (M6가 있으면)
-- [ ] API 실패 시 앱이 죽지 않고, 모델이 실패를 `finish`로 말할 수 있다
-- [ ] 카톡 시나리오에서 친구 찾기에 `web_search`를 쓰지 않는다 (스모크)
-- [ ] 홈 화면 왼쪽 상단 라벨이 `M9 — web_search`로 표시된다
+- [x] "오늘 서울 날씨 알려줘"가 구글/크롬을 열지 않고 `web_search` → `finish`로 끝난다
+- [x] summary가 검색 스니펫에 있는 내용을 말하고, TTS로 읽힌다 (M6가 있으면)
+- [x] API 실패 시 앱이 죽지 않고, 모델이 실패를 `finish`로 말할 수 있다
+- [x] 카톡 시나리오에서 친구 찾기에 `web_search`를 쓰지 않는다 (스모크)
+- [x] 홈 화면 왼쪽 상단 라벨이 `M9 — web_search`로 표시된다
 
 **데모:** 음성으로 "오늘 서울 날씨" → 검색 1회 → 결과 낭독. 구글 앱이 뜨지 않는다.
 

@@ -22,7 +22,8 @@ import kotlinx.serialization.json.put
 
 /**
  * M4: reason → act → (안정화 + 최신 트리 tool_result) 반복.
- * 행동 도구: open_app / tap_node / input_text / back / scroll (finish 제외).
+ * 행동 도구: open_app / tap_node / input_text / back / scroll.
+ * 비화면 도구: web_search (finish 제외).
  */
 class ReactAgent(
     private val llmClient: CloudLlmClient = CloudLlmClient(),
@@ -176,7 +177,9 @@ class ReactAgent(
                     parentRunId = rootRunId,
                 )
 
-                val actionResult = withContext(Dispatchers.Default) {
+                val actionResult = withContext(
+                    if (toolCall.name == "web_search") Dispatchers.IO else Dispatchers.Default,
+                ) {
                     ToolRegistry.execute(toolCall)
                 }
 
@@ -206,6 +209,13 @@ class ReactAgent(
                 }
 
                 if (cancelled()) return false
+
+                if (!shouldAttachScreenTree(toolCall.name)) {
+                    messages.add(llmClient.buildToolResultMessage(toolCall.id, actionResult.message))
+                    val status = if (actionResult.success) "OK" else "실패"
+                    onEvent("ReAct: 결과 $status — ${actionResult.message.lineSequence().first()}")
+                    continue
+                }
 
                 onEvent("ReAct: 안정화 대기 (quiet=${AgentAccessibilityService.QUIET_WINDOW_MS}ms / hard=${AgentAccessibilityService.HARD_TIMEOUT_MS}ms)")
                 val outcome = service.waitForUiSettle(aborted = { stopRequested.get() })
@@ -269,9 +279,15 @@ class ReactAgent(
         return "ReAct: 선택 ${toolCall.name} — $reason$argsSuffix"
     }
 
+    private fun shouldAttachScreenTree(toolName: String): Boolean {
+        return toolName !in NON_SCREEN_TOOLS
+    }
+
     companion object {
         const val MAX_ROUNDS = 10
         const val DEFAULT_FINISH_SUMMARY = "작업을 마쳤습니다."
+
+        private val NON_SCREEN_TOOLS = setOf("web_search")
 
         /** UI·오버레이가 공유하는 단일 인스턴스 (동시 실행 방지). */
         val shared = ReactAgent()
