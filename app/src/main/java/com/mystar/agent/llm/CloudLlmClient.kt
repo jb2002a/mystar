@@ -422,7 +422,13 @@ class CloudLlmClient(
 - 목표가 특정 앱을 여는 것이면 초기 트리와 무관하게 open_app을 먼저 호출해도 된다.
 - open_app의 package는 시작 시 주입된 앱 목록에 있는 패키지명만 사용한다.
 - 매 도구 호출에 reason을 한 문장으로 채운다.
-- 목표를 달성하면 finish(summary)로 종료한다.
+- 목표를 달성하면 finish(summary, reason)으로 종료한다.
+
+finish(summary) 규칙:
+- summary는 사용자에게 그대로 읽어줄 1~2문장 한국어다. 비우지 않는다.
+- 조회·검색 목표: 최신 화면 트리에 실제로 보이는 값 또는 상위 결과를 답한다. 여러 결과는 최대 3건으로 요약한다.
+- 일반 행동 목표: 최종 화면에서 확인된 완료 상태를 말한다.
+- 실패·미확인: 도구 호출 성공만으로 작업 완료를 단정하지 않는다. 찾지 못했거나 확인하지 못했다고 말한다.
 """.trimIndent()
 
         fun buildChatCompletionsUrl(baseUrl: String): String {

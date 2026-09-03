@@ -40,11 +40,13 @@ class ReactAgent(
 
     /**
      * @param onEvent 라운드/도구/안정화/종료 로그를 UI에 스트리밍
+     * @param onFinishSummary finish 호출 시 사용자에게 읽어줄 summary (비어 있으면 기본 문구)
      * @return true if finish로 정상 종료, false if 실패/최대 라운드/중단
      */
     suspend fun run(
         goal: String,
         onEvent: (String) -> Unit = {},
+        onFinishSummary: (String) -> Unit = {},
     ): Boolean = mutex.withLock {
         if (!running.compareAndSet(false, true)) {
             onEvent("ReAct: 이미 실행 중")
@@ -52,14 +54,18 @@ class ReactAgent(
         }
         stopRequested.set(false)
         try {
-            execute(goal.trim(), onEvent)
+            execute(goal.trim(), onEvent, onFinishSummary)
         } finally {
             running.set(false)
             stopRequested.set(false)
         }
     }
 
-    private suspend fun execute(goal: String, onEvent: (String) -> Unit): Boolean {
+    private suspend fun execute(
+        goal: String,
+        onEvent: (String) -> Unit,
+        onFinishSummary: (String) -> Unit,
+    ): Boolean {
         if (goal.isEmpty()) {
             onEvent("ReAct: 목표가 비어 있음")
             return false
@@ -187,6 +193,9 @@ class ReactAgent(
 
                 if (toolCall.name == "finish") {
                     onEvent("ReAct: 완료 — ${actionResult.message}")
+                    val summary = toolCall.args["summary"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                    val spokenSummary = summary.ifEmpty { DEFAULT_FINISH_SUMMARY }
+                    onFinishSummary(spokenSummary)
                     success = actionResult.success
                     endReason = if (success) "finish" else "finish_failed"
                     if (!success) {
@@ -261,6 +270,7 @@ class ReactAgent(
 
     companion object {
         const val MAX_ROUNDS = 10
+        const val DEFAULT_FINISH_SUMMARY = "작업을 마쳤습니다."
 
         /** UI·오버레이가 공유하는 단일 인스턴스 (동시 실행 방지). */
         val shared = ReactAgent()

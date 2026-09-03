@@ -68,16 +68,20 @@ private const val SPEECH_MIN_LISTEN_MS = 15_000
 private const val SPEECH_SILENCE_MS = 4_000
 
 class MainActivity : ComponentActivity() {
+    private lateinit var ttsHelper: TtsHelper
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        ttsHelper = TtsHelper(this)
+        ttsHelper.init()
         ServiceStatus.init(this)
         ServiceStatus.refreshFromInstance()
         ServiceStatus.appendLog("MainActivity.onCreate")
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    AgentHomeScreen()
+                    AgentHomeScreen(onSpeakFinish = { ttsHelper.speak(it) })
                 }
             }
         }
@@ -87,10 +91,15 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         ServiceStatus.refreshFromInstance()
     }
+
+    override fun onDestroy() {
+        ttsHelper.shutdown()
+        super.onDestroy()
+    }
 }
 
 @Composable
-private fun AgentHomeScreen() {
+private fun AgentHomeScreen(onSpeakFinish: (String) -> Unit) {
     val context = LocalContext.current
     val connected by ServiceStatus.connected.collectAsStateWithLifecycle()
     val overlayEnabled by ServiceStatus.overlayEnabled.collectAsStateWithLifecycle()
@@ -108,7 +117,11 @@ private fun AgentHomeScreen() {
         reactRunning = true
         scope.launch {
             try {
-                reactAgent.run(goal) { msg -> ServiceStatus.appendLog(msg) }
+                reactAgent.run(
+                    goal = goal,
+                    onEvent = { msg -> ServiceStatus.appendLog(msg) },
+                    onFinishSummary = onSpeakFinish,
+                )
             } finally {
                 reactRunning = false
             }
