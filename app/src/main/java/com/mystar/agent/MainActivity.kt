@@ -61,6 +61,12 @@ import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
+/** 말하기 시작 후 최소 청취 시간(ms). 생각하며 말할 때 조기 종료 방지. */
+private const val SPEECH_MIN_LISTEN_MS = 15_000
+
+/** 말 끝으로 간주하는 침묵(ms). 기본 1~2초보다 여유 있게. */
+private const val SPEECH_SILENCE_MS = 4_000
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -150,6 +156,12 @@ private fun AgentHomeScreen() {
             )
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.KOREA.toLanguageTag())
             putExtra(RecognizerIntent.EXTRA_PROMPT, "목표를 말씀해 주세요")
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, SPEECH_MIN_LISTEN_MS)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, SPEECH_SILENCE_MS)
+            putExtra(
+                RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,
+                SPEECH_SILENCE_MS,
+            )
         }
         try {
             speechLauncher.launch(intent)
