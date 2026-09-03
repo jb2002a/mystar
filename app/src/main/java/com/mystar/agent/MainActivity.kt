@@ -204,7 +204,7 @@ private fun AgentHomeScreen(onSpeakFinish: (String) -> Unit) {
             fontWeight = FontWeight.Bold,
         )
         Text(
-            text = "M5 — 음성 + 자동 전송",
+            text = "M6 — finish 결과 TTS",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
