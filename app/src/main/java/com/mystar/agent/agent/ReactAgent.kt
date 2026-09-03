@@ -6,6 +6,7 @@ import com.mystar.agent.StabilizeOutcome
 import com.mystar.agent.llm.CloudLlmClient
 import com.mystar.agent.llm.LlmResult
 import com.mystar.agent.tool.AppCatalog
+import com.mystar.agent.tool.ToolCall
 import com.mystar.agent.tool.ToolRegistry
 import com.mystar.agent.tracing.LangSmithClient
 import java.util.concurrent.atomic.AtomicBoolean
@@ -15,6 +16,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 /**
@@ -153,7 +156,7 @@ class ReactAgent(
                 if (cancelled()) return false
 
                 messages.add(assistantMessage)
-                onEvent("ReAct: 선택 ${toolCall.name}${toolCall.args}")
+                onEvent(formatToolChoice(toolCall))
 
                 val toolRunId = tracer.startRun(
                     name = toolCall.name,
@@ -239,6 +242,21 @@ class ReactAgent(
                 error = endError,
             )
         }
+    }
+
+    private fun formatToolChoice(toolCall: ToolCall): String {
+        val reason = toolCall.args["reason"]?.jsonPrimitive?.contentOrNull?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: "(reason 없음)"
+        val otherArgs = buildJsonObject {
+            for ((key, value) in toolCall.args) {
+                if (key != "reason") {
+                    put(key, value)
+                }
+            }
+        }
+        val argsSuffix = if (otherArgs.isEmpty()) "" else " $otherArgs"
+        return "ReAct: 선택 ${toolCall.name} — $reason$argsSuffix"
     }
 
     companion object {

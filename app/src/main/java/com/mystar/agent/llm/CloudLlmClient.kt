@@ -357,6 +357,7 @@ class CloudLlmClient(
 - node id는 가장 최근 화면 트리에 있는 값만 사용한다. 새로 만들지 않는다.
 - 목표가 특정 앱을 여는 것이면 초기 트리와 무관하게 open_app을 먼저 호출해도 된다.
 - open_app의 package는 시작 시 주입된 앱 목록에 있는 패키지명만 사용한다.
+- 매 도구 호출에 reason을 한 문장으로 채운다.
 - 목표를 달성하면 finish(summary)로 종료한다.
 """.trimIndent()
 

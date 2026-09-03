@@ -18,7 +18,8 @@ object ToolRegistry {
             description = "앱을 실행한다. package는 시작 시 주입된 앱 목록의 패키지명을 사용한다.",
             parameters = objectSchema(
                 "package" to stringProp("실행할 앱의 패키지명 (앱 목록에서 선택)"),
-                required = listOf("package"),
+                "reason" to reasonProp(),
+                required = listOf("package", "reason"),
             ),
         ),
         ToolDefinition(
@@ -26,7 +27,8 @@ object ToolRegistry {
             description = "최신 화면 트리에 있는 node id를 탭한다. 예: n3",
             parameters = objectSchema(
                 "node_id" to stringProp("탭할 node id (예: n3)"),
-                required = listOf("node_id"),
+                "reason" to reasonProp(),
+                required = listOf("node_id", "reason"),
             ),
         ),
         ToolDefinition(
@@ -35,7 +37,8 @@ object ToolRegistry {
             parameters = objectSchema(
                 "text" to stringProp("입력할 텍스트"),
                 "node_id" to stringProp("입력 필드의 node id"),
-                required = listOf("text", "node_id"),
+                "reason" to reasonProp(),
+                required = listOf("text", "node_id", "reason"),
             ),
         ),
         ToolDefinition(
@@ -43,7 +46,8 @@ object ToolRegistry {
             description = "목표가 완료되었음을 선언하고 작업을 종료한다.",
             parameters = objectSchema(
                 "summary" to stringProp("완료 요약 (선택)"),
-                required = emptyList(),
+                "reason" to reasonProp(),
+                required = listOf("reason"),
             ),
         ),
     )
@@ -155,4 +159,6 @@ object ToolRegistry {
         put("type", "string")
         put("description", description)
     }
+
+    private fun reasonProp(): JsonObject = stringProp("이 도구를 지금 고른 이유. 한 문장.")
 }
