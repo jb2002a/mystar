@@ -2,5 +2,7 @@
 #
 # sdk.dir=C\:\\Users\\YOU\\AppData\\Local\\Android\\Sdk
 # LLM_API_KEY=sk-your-key-here
+# LLM_BASE_URL=https://api.openai.com/v1
+# LLM_MODEL=gpt-4o-mini
 #
-# LLM_API_KEY is read by app/build.gradle.kts and exposed as BuildConfig.LLM_API_KEY.
+# These are read by app/build.gradle.kts and exposed as BuildConfig fields.

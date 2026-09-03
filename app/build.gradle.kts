@@ -14,6 +14,10 @@ val localProperties = Properties().apply {
     }
 }
 val llmApiKey: String = localProperties.getProperty("LLM_API_KEY", "")
+val llmBaseUrl: String = localProperties.getProperty("LLM_BASE_URL", "")
+val llmModel: String = localProperties.getProperty("LLM_MODEL", "")
+
+fun escapeBuildConfig(value: String): String = value.replace("\\", "\\\\").replace("\"", "\\\"")
 
 android {
     namespace = "com.mystar.agent"
@@ -26,7 +30,9 @@ android {
         versionCode = 1
         versionName = "0.1.0"
 
-        buildConfigField("String", "LLM_API_KEY", "\"${llmApiKey.replace("\"", "\\\"")}\"")
+        buildConfigField("String", "LLM_API_KEY", "\"${escapeBuildConfig(llmApiKey)}\"")
+        buildConfigField("String", "LLM_BASE_URL", "\"${escapeBuildConfig(llmBaseUrl)}\"")
+        buildConfigField("String", "LLM_MODEL", "\"${escapeBuildConfig(llmModel)}\"")
     }
 
     buildTypes {

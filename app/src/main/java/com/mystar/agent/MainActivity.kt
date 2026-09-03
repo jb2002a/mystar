@@ -48,6 +48,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mystar.agent.agent.SingleStepAgent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -76,11 +77,14 @@ class MainActivity : ComponentActivity() {
 private fun AgentHomeScreen() {
     val connected by ServiceStatus.connected.collectAsStateWithLifecycle()
     val logs by ServiceStatus.logs.collectAsStateWithLifecycle()
+    val pendingGoal by ServiceStatus.pendingGoal.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val singleStepAgent = remember { SingleStepAgent() }
     var param1 by remember { mutableStateOf("n3") }
     var param2 by remember { mutableStateOf("") }
     var message by remember { mutableStateOf("") }
+    var llmRunning by remember { mutableStateOf(false) }
 
     LaunchedEffect(logs.size) {
         if (logs.isNotEmpty()) {
@@ -103,7 +107,7 @@ private fun AgentHomeScreen() {
             fontWeight = FontWeight.Bold,
         )
         Text(
-            text = "M2 — 행동: 탭 / 입력",
+            text = "M3 — 클라우드 LLM 단발 도구 선택",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -127,11 +131,58 @@ private fun AgentHomeScreen() {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = if (connected) {
-                        "param1/param2에 값을 넣고 탭(tap_node)/입력(input_text)을 호출하세요.\n확인 버튼은 현재 화면을 로그로 덤프합니다."
+                        "목표를 저장한 뒤 설정 앱을 열고, 오버레이의 \"LLM 1회\"로 실행하세요.\n앱 화면에서도 바로 실행할 수 있지만, 그때는 이 앱 화면 트리가 캡처됩니다."
                     } else {
                         "설정 > 접근성에서 \"MyStar Agent\"를 켜세요"
                     },
                     style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+            ),
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = "LLM 1회 실행",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                OutlinedTextField(
+                    value = pendingGoal,
+                    onValueChange = { ServiceStatus.setPendingGoal(it) },
+                    label = { Text("목표") },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !llmRunning,
+                )
+                Button(
+                    onClick = {
+                        val goal = pendingGoal
+                        llmRunning = true
+                        scope.launch {
+                            try {
+                                singleStepAgent.runOnce(goal)
+                            } finally {
+                                llmRunning = false
+                            }
+                        }
+                    },
+                    enabled = connected && !llmRunning && pendingGoal.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (llmRunning) "실행 중…" else "LLM 1회 실행")
+                }
+                Text(
+                    text = "설정 화면 테스트: 목표 저장 → 설정 앱 열기 → 오버레이 \"LLM 1회\"",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -306,7 +357,7 @@ private fun AgentHomeScreen() {
             }
         }
 
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(
@@ -314,21 +365,42 @@ private fun AgentHomeScreen() {
                     shape = MaterialTheme.shapes.small,
                 )
                 .padding(12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Text(
-                text = "API 키",
-                style = MaterialTheme.typography.labelMedium,
-            )
-            Text(
-                text = if (BuildConfig.LLM_API_KEY.isBlank()) {
-                    "미설정 (local.properties)"
+            ConfigRow(
+                label = "API 키",
+                value = if (BuildConfig.LLM_API_KEY.isBlank()) {
+                    "미설정"
                 } else {
                     "설정됨 (${BuildConfig.LLM_API_KEY.take(4)}…)"
                 },
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            ConfigRow(
+                label = "BASE_URL",
+                value = BuildConfig.LLM_BASE_URL.ifBlank { "미설정" },
+            )
+            ConfigRow(
+                label = "MODEL",
+                value = BuildConfig.LLM_MODEL.ifBlank { "미설정" },
             )
         }
+    }
+}
+
+@Composable
+private fun ConfigRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }

@@ -22,21 +22,29 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import com.mystar.agent.agent.SingleStepAgent
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 /**
  * M1: 접근성 트리 관찰(getScreenTree) + 덤프 오버레이.
  * M2: tapNode / inputText 행동 API.
+ * M3: 오버레이에서 SingleStepAgent(LLM 1회) 트리거.
  */
 class AgentAccessibilityService : AccessibilityService() {
 
     private val nodeCoords = ConcurrentHashMap<String, Point>()
     private val nodeCounter = AtomicInteger(0)
 
-    private var overlayButton: Button? = null
-    private var overlayParams: WindowManager.LayoutParams? = null
+    private var overlayDumpButton: Button? = null
+    private var overlayLlmButton: Button? = null
+    private val overlayScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val singleStepAgent = SingleStepAgent()
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -415,16 +423,31 @@ class AgentAccessibilityService : AccessibilityService() {
     }
 
     private fun showDumpOverlay() {
-        if (overlayButton != null) return
+        if (overlayDumpButton != null) return
 
-        val button = Button(this).apply {
+        val dumpButton = Button(this).apply {
             text = "덤프"
             textSize = 12f
             setPadding(24, 12, 24, 12)
             setOnClickListener { dumpScreenTreeToLog() }
         }
+        val llmButton = Button(this).apply {
+            text = "LLM 1회"
+            textSize = 12f
+            setPadding(24, 12, 24, 12)
+            setOnClickListener {
+                val goal = ServiceStatus.pendingGoal.value
+                if (goal.isBlank()) {
+                    ServiceStatus.appendLog("LLM 1회: 앱에서 목표를 먼저 입력하세요")
+                    return@setOnClickListener
+                }
+                overlayScope.launch {
+                    singleStepAgent.runOnce(goal)
+                }
+            }
+        }
 
-        val params = WindowManager.LayoutParams(
+        val dumpParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
@@ -436,30 +459,51 @@ class AgentAccessibilityService : AccessibilityService() {
             x = 16
             y = 120
         }
+        val llmParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.TOP or Gravity.END
+            x = 16
+            y = 200
+        }
 
         try {
             val wm = getSystemService(WINDOW_SERVICE) as WindowManager
-            wm.addView(button, params)
-            overlayButton = button
-            overlayParams = params
-            ServiceStatus.appendLog("덤프 오버레이 표시됨 (설정 화면에서 '덤프' 탭)")
-            Log.i(TAG, "dump overlay shown")
+            wm.addView(dumpButton, dumpParams)
+            wm.addView(llmButton, llmParams)
+            overlayDumpButton = dumpButton
+            overlayLlmButton = llmButton
+            ServiceStatus.appendLog("오버레이 표시됨 (덤프 / LLM 1회)")
+            Log.i(TAG, "overlay shown")
         } catch (e: Exception) {
-            ServiceStatus.appendLog("덤프 오버레이 실패: ${e.message}")
-            Log.e(TAG, "failed to show dump overlay", e)
+            ServiceStatus.appendLog("오버레이 실패: ${e.message}")
+            Log.e(TAG, "failed to show overlay", e)
         }
     }
 
     private fun removeDumpOverlay() {
-        val button = overlayButton ?: return
-        try {
-            val wm = getSystemService(WINDOW_SERVICE) as WindowManager
-            wm.removeView(button)
-        } catch (e: Exception) {
-            Log.w(TAG, "failed to remove dump overlay", e)
+        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        overlayDumpButton?.let { button ->
+            try {
+                wm.removeView(button)
+            } catch (e: Exception) {
+                Log.w(TAG, "failed to remove dump overlay", e)
+            }
         }
-        overlayButton = null
-        overlayParams = null
+        overlayLlmButton?.let { button ->
+            try {
+                wm.removeView(button)
+            } catch (e: Exception) {
+                Log.w(TAG, "failed to remove llm overlay", e)
+            }
+        }
+        overlayDumpButton = null
+        overlayLlmButton = null
     }
 
     companion object {
@@ -483,6 +527,11 @@ object ServiceStatus {
     private val _connected = MutableStateFlow(AgentAccessibilityService.isBound())
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
 
+    private val _pendingGoal = MutableStateFlow(
+        "이 화면에서 배터리를 누르려면?",
+    )
+    val pendingGoal: StateFlow<String> = _pendingGoal.asStateFlow()
+
     private val logLines = CopyOnWriteArrayList<String>()
     private val _logs = MutableStateFlow<List<String>>(emptyList())
     val logs: StateFlow<List<String>> = _logs.asStateFlow()
@@ -491,6 +540,10 @@ object ServiceStatus {
 
     fun setConnected(value: Boolean) {
         _connected.value = value
+    }
+
+    fun setPendingGoal(goal: String) {
+        _pendingGoal.value = goal
     }
 
     fun appendLog(message: String) {
