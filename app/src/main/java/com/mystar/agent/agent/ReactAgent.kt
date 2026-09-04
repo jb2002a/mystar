@@ -122,17 +122,18 @@ class ReactAgent(
         }
 
         try {
-            val initialTree = withContext(Dispatchers.Default) {
-                service.getScreenTree()
-            }
-            if (initialTree == null) {
-                onEvent("ReAct: 초기 화면 트리 null (활성 창 없음?)")
-                endReason = "initial_tree_null"
-                endError = "initial screen tree null"
-                return false
-            }
-            val initialNodes = initialTree.lines().count { it.isNotBlank() }
-            onEvent("ReAct: 초기 트리 1회 주입 준비 ($initialNodes nodes)")
+            // 초기 트리 주입 임시 비활성. 첫 화면은 행동 후 tool_result로만 본다.
+            // val initialTree = withContext(Dispatchers.Default) {
+            //     service.getScreenTree()
+            // }
+            // if (initialTree == null) {
+            //     onEvent("ReAct: 초기 화면 트리 null (활성 창 없음?)")
+            //     endReason = "initial_tree_null"
+            //     endError = "initial screen tree null"
+            //     return false
+            // }
+            // val initialNodes = initialTree.lines().count { it.isNotBlank() }
+            // onEvent("ReAct: 초기 트리 1회 주입 준비 ($initialNodes nodes)")
 
             val appCatalog = withContext(Dispatchers.Default) {
                 AppCatalog.buildCatalog(service)
@@ -145,7 +146,7 @@ class ReactAgent(
                 llmClient.buildGoalUserMessage(goal),
             )
             val initialAppCatalog = llmClient.buildInitialAppCatalogMessage(appCatalog)
-            val initialScreenContext = llmClient.buildInitialScreenContextMessage(initialTree)
+            // val initialScreenContext = llmClient.buildInitialScreenContextMessage(initialTree)
 
             for (round in 1..MAX_ROUNDS) {
                 if (cancelled()) return false
@@ -153,8 +154,10 @@ class ReactAgent(
                 onEvent("ReAct: 라운드 $round/$MAX_ROUNDS")
 
                 val requestMessages = if (round == 1) {
-                    onEvent("ReAct: 앱 카탈로그·초기 트리 1회 전달 (히스토리 비누적)")
-                    listOf(messages[0], initialAppCatalog, initialScreenContext) + messages.drop(1)
+                    onEvent("ReAct: 앱 카탈로그 1회 전달 (히스토리 비누적)")
+                    listOf(messages[0], initialAppCatalog) + messages.drop(1)
+                    // onEvent("ReAct: 앱 카탈로그·초기 트리 1회 전달 (히스토리 비누적)")
+                    // listOf(messages[0], initialAppCatalog, initialScreenContext) + messages.drop(1)
                 } else {
                     messages
                 }
