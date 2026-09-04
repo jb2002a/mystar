@@ -12,11 +12,11 @@
 M0 ✅ 셋업/권한 → M1 ✅ 관찰 → M2 ✅ 행동 → M3 ✅ LLM연동 → M4 ✅ 루프 → M5 ✅ 음성+시나리오
    (기반)         (읽기)    (조작)    (추론)      (자동화)   (통합)
                                                                       ↓
-                         M6 ✅ speak → M7 ✅ back → M8 ✅ scroll → M9 ✅ web_search → M10  ask_user → M11  다단계
-                            (낭독)         (복구)         (목록)            (지식)          (HITL)         (검증)
+                         M6 ✅ speak → M7 ✅ back → M8 ✅ scroll → M9 ✅ web_search → M10 ✅ ask_user → M11  성능 검증
+                            (낭독)         (복구)         (목록)            (지식)          (HITL)            (실측)
 ```
 
-M6–M9는 [포스트 MVP 로드맵](./ReactAgent_포스트MVP.md) — ✅ 완료 (2026-09-04).
+M6–M9는 [포스트 MVP 로드맵](./ReactAgent_포스트MVP.md) — ✅ 완료 (2026-09-04). M10 ✅. M11은 [성능 검증](./ReactAgent_성능검증.md) (시나리오·스트레스·공개 테스트셋).
 
 각 마일스톤의 **완료 기준(DoD)**을 통과해야 다음으로 진행한다.
 
@@ -178,4 +178,4 @@ M6–M9는 [포스트 MVP 로드맵](./ReactAgent_포스트MVP.md) — ✅ 완�
 1. 음성 명령 한 마디로 실제 앱 조작이 자동 수행된다.
 2. 앱을 하드코딩하지 않은 **제네릭 도구 4개**(`open_app` / `tap_node` / `input_text` / `finish`) **+ ReAct 루프**로 동작한다(카톡 전용 로직 없음). 화면 관찰은 도구가 아니라 행동 후 자동 tool_result다.
 
-이후 바로 할 일(speak · back · scroll · web_search · ask_user · 다단계 테스트)은 [포스트 MVP](./ReactAgent_포스트MVP.md). 로컬 모델·스킬·라우터·외부 트리거는 기획서 §7 하단.
+이후 바로 할 일(실측)은 [성능 검증](./ReactAgent_성능검증.md). 포스트 MVP 도구 설계는 [포스트 MVP](./ReactAgent_포스트MVP.md). 로컬 모델·스킬·라우터·외부 트리거는 기획서 §7 하단.
