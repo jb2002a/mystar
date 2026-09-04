@@ -3,6 +3,8 @@ package com.mystar.agent
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.Manifest
+import android.os.Build
 import android.os.Bundle
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -93,6 +95,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         ServiceStatus.refreshFromInstance()
+        ServiceStatus.refreshHitlMicPermission(this)
     }
 
     override fun onDestroy() {
@@ -109,6 +112,7 @@ private fun AgentHomeScreen(
     val context = LocalContext.current
     val connected by ServiceStatus.connected.collectAsStateWithLifecycle()
     val overlayEnabled by ServiceStatus.overlayEnabled.collectAsStateWithLifecycle()
+    val hitlMicGranted by ServiceStatus.hitlMicGranted.collectAsStateWithLifecycle()
     val logs by ServiceStatus.logs.collectAsStateWithLifecycle()
     val pendingGoal by ServiceStatus.pendingGoal.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
@@ -118,6 +122,34 @@ private fun AgentHomeScreen(
     var param2 by remember { mutableStateOf("") }
     var message by remember { mutableStateOf("") }
     var reactRunning by remember { mutableStateOf(false) }
+
+    val hitlPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { results ->
+        ServiceStatus.refreshHitlMicPermission(context)
+        val audioGranted = results[Manifest.permission.RECORD_AUDIO] == true
+        if (audioGranted) {
+            ServiceStatus.appendLog("HITL: 마이크 권한 허용됨")
+        } else {
+            ServiceStatus.appendLog("HITL: 마이크 권한 거부 — 오버레이에서 텍스트/버튼으로만 답할 수 있음")
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val notifGranted = results[Manifest.permission.POST_NOTIFICATIONS] == true
+            if (!notifGranted) {
+                ServiceStatus.appendLog("HITL: 알림 권한 거부 — 마이크 FGS 알림이 안 보일 수 있음")
+            }
+        }
+    }
+
+    fun requestHitlMicPermission() {
+        val permissions = buildList {
+            add(Manifest.permission.RECORD_AUDIO)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+        hitlPermissionLauncher.launch(permissions.toTypedArray())
+    }
 
     fun runGoal(goal: String) {
         reactRunning = true
@@ -242,6 +274,27 @@ private fun AgentHomeScreen(
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Spacer(modifier = Modifier.height(8.dp))
+                if (connected) {
+                    Text(
+                        text = if (hitlMicGranted) {
+                            "HITL 마이크: 허용됨 — 다른 앱 위에서 질문에 음성으로 답할 수 있습니다"
+                        } else {
+                            "HITL 마이크: 미허용 — 오버레이 질문은 텍스트/버튼만 가능합니다"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (!hitlMicGranted) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = { requestHitlMicPermission() },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("HITL 마이크 권한 허용")
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,

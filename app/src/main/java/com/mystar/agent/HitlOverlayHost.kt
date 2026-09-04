@@ -32,6 +32,7 @@ class HitlOverlayHost(private val service: AgentAccessibilityService) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var panelRoot: LinearLayout? = null
+    private var statusView: TextView? = null
     private var onAnswer: ((AskUserAnswer) -> Unit)? = null
     private var answered = false
 
@@ -53,8 +54,20 @@ class HitlOverlayHost(private val service: AgentAccessibilityService) {
                 if (answered) return
                 answered = true
                 autoListenJob?.cancel()
+                HitlSpeechRecognizer.cancel()
                 dismissPanel()
                 if (cont.isActive) cont.resume(answer)
+            }
+
+            fun setStatus(text: String) {
+                mainHandler.post {
+                    statusView?.text = text
+                    statusView?.visibility = if (text.isBlank()) {
+                        android.view.View.GONE
+                    } else {
+                        android.view.View.VISIBLE
+                    }
+                }
             }
 
             fun applySpeechAnswer(
@@ -64,28 +77,39 @@ class HitlOverlayHost(private val service: AgentAccessibilityService) {
                 if (answered) return
                 when {
                     answer is AskUserAnswer.Text && prompt.kind == AskUserKind.MISSING_INFO &&
-                        handles.input != null -> handles.input.setText(answer.value)
-                    answer is AskUserAnswer.Approved || answer is AskUserAnswer.Rejected ->
+                        handles.input != null -> {
+                        handles.input.setText(answer.value)
+                        setStatus("")
+                    }
+                    answer is AskUserAnswer.Approved || answer is AskUserAnswer.Rejected -> {
+                        setStatus("")
                         handles.completeOnce(answer)
+                    }
                     answer is AskUserAnswer.Text && prompt.kind == AskUserKind.CONFIRM -> {
                         val parsed = AskUserResultFormatter.parseConfirmSpeech(answer.value)
                         if (parsed != null) {
+                            setStatus("")
                             handles.completeOnce(parsed)
                         } else {
                             ServiceStatus.appendLog(
                                 "HITL: confirm 음성 불명확 — ${answer.value}",
                             )
+                            setStatus("인식 실패 — \"보내\" / \"취소\"로 다시 말하세요")
                         }
                     }
-                    answer != null -> handles.completeOnce(answer)
+                    answer != null -> {
+                        setStatus("")
+                        handles.completeOnce(answer)
+                    }
                 }
             }
 
             suspend fun recognizeAndApply(handles: PanelHandles) {
-                val answer = AskUserSpeechCoordinator.recognize(
+                val answer = HitlSpeechRecognizer.recognize(
                     service,
                     prompt.question,
                     prompt.kind,
+                    onStatus = ::setStatus,
                 )
                 mainHandler.post {
                     applySpeechAnswer(answer, handles)
@@ -134,6 +158,7 @@ class HitlOverlayHost(private val service: AgentAccessibilityService) {
             mainHandler.postDelayed(pollRunnable, ABORT_POLL_MS)
             cont.invokeOnCancellation {
                 autoListenJob?.cancel()
+                HitlSpeechRecognizer.cancel()
                 mainHandler.removeCallbacks(pollRunnable)
                 mainHandler.post {
                     if (!answered) {
@@ -182,6 +207,15 @@ class HitlOverlayHost(private val service: AgentAccessibilityService) {
             setPadding(0, pad / 2, 0, pad)
         }
         root.addView(questionView)
+
+        val status = TextView(service).apply {
+            tag = STATUS_TEXT_TAG
+            setTextColor(Color.parseColor("#FFB74D"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            visibility = android.view.View.GONE
+        }
+        root.addView(status)
+        statusView = status
 
         val buttonRow = LinearLayout(service).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -263,6 +297,8 @@ class HitlOverlayHost(private val service: AgentAccessibilityService) {
 
     private fun dismissPanel() {
         onAnswer = null
+        statusView = null
+        HitlSpeechRecognizer.cancel()
         val wm = service.getSystemService(Context.WINDOW_SERVICE) as WindowManager
         panelRoot?.let { view ->
             try {
@@ -278,5 +314,6 @@ class HitlOverlayHost(private val service: AgentAccessibilityService) {
         private const val ABORT_POLL_MS = 200L
         private const val POST_TTS_DELAY_MS = 400L
         private const val MIC_BUTTON_TAG = "hitl_mic_button"
+        private const val STATUS_TEXT_TAG = "hitl_status_text"
     }
 }

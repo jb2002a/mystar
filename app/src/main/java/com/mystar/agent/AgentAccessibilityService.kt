@@ -3,6 +3,9 @@ package com.mystar.agent
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.Context
+import android.content.pm.PackageManager
+import android.Manifest
+import androidx.core.content.ContextCompat
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.Point
@@ -711,6 +714,9 @@ object ServiceStatus {
     )
     val pendingGoal: StateFlow<String> = _pendingGoal.asStateFlow()
 
+    private val _hitlMicGranted = MutableStateFlow(false)
+    val hitlMicGranted: StateFlow<Boolean> = _hitlMicGranted.asStateFlow()
+
     private val logLines = CopyOnWriteArrayList<String>()
     private val _logs = MutableStateFlow<List<String>>(emptyList())
     val logs: StateFlow<List<String>> = _logs.asStateFlow()
@@ -720,6 +726,14 @@ object ServiceStatus {
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         _overlayEnabled.value = prefs.getBoolean(KEY_OVERLAY_ENABLED, true)
+        refreshHitlMicPermission(context)
+    }
+
+    fun refreshHitlMicPermission(context: Context) {
+        _hitlMicGranted.value = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO,
+        ) == PackageManager.PERMISSION_GRANTED
     }
 
     fun setConnected(value: Boolean) {

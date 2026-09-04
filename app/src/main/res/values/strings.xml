@@ -3,4 +3,8 @@
     <string name="app_name">MyStar Agent</string>
     <string name="accessibility_service_label">MyStar Agent</string>
     <string name="accessibility_service_description">ReAct 에이전트가 화면을 읽고 탭·입력을 수행하기 위한 접근성 서비스입니다. M0에서는 연결 확인만 합니다.</string>
+    <string name="mic_fgs_channel_name">HITL 음성 입력</string>
+    <string name="mic_fgs_channel_desc">다른 앱 위 HITL 질문에 음성으로 답할 때만 사용합니다.</string>
+    <string name="mic_fgs_title">음성 입력 중</string>
+    <string name="mic_fgs_text">HITL 질문에 답하고 있습니다</string>
 </resources>
