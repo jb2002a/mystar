@@ -54,16 +54,6 @@ class HitlOverlayHost(private val service: AgentAccessibilityService) {
             speakQuestion(prompt.question)
             ServiceStatus.appendLog("HITL: 질문 (${AskUserKind.toApiString(prompt.kind)}) — ${prompt.question}")
 
-            cont.invokeOnCancellation {
-                mainHandler.post {
-                    if (!answered) {
-                        answered = true
-                        dismissPanel()
-                    }
-                }
-            }
-
-            // 강제 종료 폴링
             val pollRunnable = object : Runnable {
                 override fun run() {
                     if (answered) return
@@ -77,6 +67,12 @@ class HitlOverlayHost(private val service: AgentAccessibilityService) {
             mainHandler.postDelayed(pollRunnable, ABORT_POLL_MS)
             cont.invokeOnCancellation {
                 mainHandler.removeCallbacks(pollRunnable)
+                mainHandler.post {
+                    if (!answered) {
+                        answered = true
+                        dismissPanel()
+                    }
+                }
             }
         }
     }
