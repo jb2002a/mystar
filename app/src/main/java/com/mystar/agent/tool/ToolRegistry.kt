@@ -71,6 +71,19 @@ object ToolRegistry {
             ),
         ),
         ToolDefinition(
+            name = "ask_user",
+            description = "루프를 멈추고 사용자에게 질문한다. 한 호출에 하나만. " +
+                "kind=missing_info: 목표에 없는 필수 정보를 묻는다(자유 텍스트 답). " +
+                "kind=confirm: 전송·결제·구매·가입완료·동의 등 되돌릴 수 없는 탭 직전에 승인/거절을 받는다. " +
+                "확인 후 실제 탭은 tap_node가 한다. ask_user는 finish가 아니다.",
+            parameters = objectSchema(
+                "question" to stringProp("사용자에게 읽을 한두 문장 질문. 트리 원문을 넣지 않는다"),
+                "kind" to enumProp("질문 종류", listOf("missing_info", "confirm")),
+                "reason" to reasonProp(),
+                required = listOf("question", "kind", "reason"),
+            ),
+        ),
+        ToolDefinition(
             name = "finish",
             description = "목표가 완료되었음을 선언하고 작업을 종료한다.",
             parameters = objectSchema(
@@ -95,6 +108,7 @@ object ToolRegistry {
             "back" -> executeBack(call.args)
             "scroll" -> executeScroll(call.args)
             "web_search" -> executeWebSearch(call.args)
+            "ask_user" -> executeAskUser(call.args)
             "finish" -> executeFinish(call.args)
             else -> ToolResult(false, "알 수 없는 도구: ${call.name}")
         }
@@ -187,6 +201,31 @@ object ToolRegistry {
         val query = requireString(args, "query")
             ?: return ToolResult(false, "query 인자 필요")
         return WebSearchClient.shared.search(query)
+    }
+
+    /** ReactAgent가 UI 대기 전에 인자 검증용으로 호출한다. 실제 대기는 onAskUser 콜백에서 수행. */
+    private fun executeAskUser(args: JsonObject): ToolResult {
+        return when (val parsed = parseAskUserPrompt(args)) {
+            is AskUserParseResult.Ok -> ToolResult(true, "ask_user pending")
+            is AskUserParseResult.Error -> ToolResult(false, parsed.message)
+        }
+    }
+
+    fun parseAskUserPrompt(args: JsonObject): AskUserParseResult {
+        val question = requireString(args, "question")
+            ?: return AskUserParseResult.Error("question 인자 필요")
+        val kindRaw = requireString(args, "kind")
+            ?: return AskUserParseResult.Error("kind 인자 필요")
+        val kind = com.mystar.agent.agent.AskUserKind.fromString(kindRaw)
+            ?: return AskUserParseResult.Error("kind는 missing_info 또는 confirm만 가능")
+        return AskUserParseResult.Ok(
+            com.mystar.agent.agent.AskUserPrompt(question = question, kind = kind),
+        )
+    }
+
+    sealed class AskUserParseResult {
+        data class Ok(val prompt: com.mystar.agent.agent.AskUserPrompt) : AskUserParseResult()
+        data class Error(val message: String) : AskUserParseResult()
     }
 
     private fun executeFinish(args: JsonObject): ToolResult {

@@ -26,8 +26,14 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import com.mystar.agent.agent.ReactAgent
+import com.mystar.agent.agent.AskUserAnswer
+import com.mystar.agent.agent.AskUserPrompt
 import com.mystar.agent.tool.ToolRegistry
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -56,6 +62,10 @@ class AgentAccessibilityService : AccessibilityService() {
 
     private var overlayDumpButton: Button? = null
     private var overlayLlmButton: Button? = null
+    private var dumpOverlayHiddenForHitl = false
+
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val hitlOverlayHost = HitlOverlayHost(this)
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -121,6 +131,7 @@ class AgentAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         removeDumpOverlay()
+        hitlOverlayHost.dismissIfShowing()
         clearScrollRefs()
         if (instance === this) {
             instance = null
@@ -129,6 +140,30 @@ class AgentAccessibilityService : AccessibilityService() {
             Log.i(TAG, "onDestroy: instance cleared")
         }
         super.onDestroy()
+    }
+
+    /** HITL 음성 인식 등 서비스에서 시작하는 코루틴. */
+    fun launchScopeForHitl(block: suspend () -> Unit) {
+        serviceScope.launch { block() }
+    }
+
+    suspend fun askUser(
+        prompt: AskUserPrompt,
+        speakQuestion: (String) -> Unit,
+        aborted: () -> Boolean,
+    ): AskUserAnswer = hitlOverlayHost.askUser(prompt, speakQuestion, aborted)
+
+    fun setDumpOverlayHidden(hidden: Boolean) {
+        dumpOverlayHiddenForHitl = hidden
+        mainHandler.post { applyDumpOverlayVisibility() }
+    }
+
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    private fun applyDumpOverlayVisibility() {
+        val visibility = if (dumpOverlayHiddenForHitl) android.view.View.GONE else android.view.View.VISIBLE
+        overlayDumpButton?.visibility = visibility
+        overlayLlmButton?.visibility = visibility
     }
 
     /** M2용: 마지막 getScreenTree() 스냅샷의 node id → 중심 좌표. */

@@ -121,6 +121,7 @@ private fun AgentHomeScreen(onSpeakFinish: (String) -> Unit) {
                     goal = goal,
                     onEvent = { msg -> ServiceStatus.appendLog(msg) },
                     onFinishSummary = onSpeakFinish,
+                    onSpeakQuestion = onSpeakFinish,
                 )
             } finally {
                 reactRunning = false
@@ -204,7 +205,7 @@ private fun AgentHomeScreen(onSpeakFinish: (String) -> Unit) {
             fontWeight = FontWeight.Bold,
         )
         Text(
-            text = "M9 — web_search",
+            text = "M10 — ask_user (HITL)",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

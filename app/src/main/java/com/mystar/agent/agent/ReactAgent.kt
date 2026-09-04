@@ -8,12 +8,14 @@ import com.mystar.agent.llm.LlmResult
 import com.mystar.agent.tool.AppCatalog
 import com.mystar.agent.tool.ToolCall
 import com.mystar.agent.tool.ToolRegistry
+import com.mystar.agent.tool.ToolResult
 import com.mystar.agent.tracing.LangSmithClient
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -23,7 +25,7 @@ import kotlinx.serialization.json.put
 /**
  * M4: reason → act → (안정화 + 최신 트리 tool_result) 반복.
  * 행동 도구: open_app / tap_node / input_text / back / scroll.
- * 비화면 도구: web_search (finish 제외).
+ * 비화면 도구: web_search / ask_user (finish 제외).
  */
 class ReactAgent(
     private val llmClient: CloudLlmClient = CloudLlmClient(),
@@ -43,12 +45,18 @@ class ReactAgent(
     /**
      * @param onEvent 라운드/도구/안정화/종료 로그를 UI에 스트리밍
      * @param onFinishSummary finish 호출 시 사용자에게 읽어줄 summary (비어 있으면 기본 문구)
+     * @param onSpeakQuestion ask_user 질문 TTS
+     * @param onAskUser ask_user 대기 — 사람 응답을 반환한다
      * @return true if finish로 정상 종료, false if 실패/최대 라운드/중단
      */
     suspend fun run(
         goal: String,
         onEvent: (String) -> Unit = {},
         onFinishSummary: (String) -> Unit = {},
+        onSpeakQuestion: (String) -> Unit = {},
+        onAskUser: suspend (AskUserPrompt) -> AskUserAnswer = { prompt ->
+            askUserDefault(prompt, onSpeakQuestion)
+        },
     ): Boolean = mutex.withLock {
         if (!running.compareAndSet(false, true)) {
             onEvent("ReAct: 이미 실행 중")
@@ -56,7 +64,7 @@ class ReactAgent(
         }
         stopRequested.set(false)
         try {
-            execute(goal.trim(), onEvent, onFinishSummary)
+            execute(goal.trim(), onEvent, onFinishSummary, onSpeakQuestion, onAskUser)
         } finally {
             running.set(false)
             stopRequested.set(false)
@@ -67,6 +75,8 @@ class ReactAgent(
         goal: String,
         onEvent: (String) -> Unit,
         onFinishSummary: (String) -> Unit,
+        onSpeakQuestion: (String) -> Unit,
+        onAskUser: suspend (AskUserPrompt) -> AskUserAnswer,
     ): Boolean {
         if (goal.isEmpty()) {
             onEvent("ReAct: 목표가 비어 있음")
@@ -130,7 +140,6 @@ class ReactAgent(
             val catalogLines = appCatalog.lines().count { it.isNotBlank() }
             onEvent("ReAct: 앱 카탈로그 1회 주입 준비 ($catalogLines apps)")
 
-            // 영속 히스토리: system 규칙 + 목표만. 초기 트리·카탈로그는 라운드 1 요청에만 붙인다.
             val messages = mutableListOf<JsonObject>(
                 llmClient.buildSystemMessage(),
                 llmClient.buildGoalUserMessage(goal),
@@ -145,7 +154,6 @@ class ReactAgent(
 
                 val requestMessages = if (round == 1) {
                     onEvent("ReAct: 앱 카탈로그·초기 트리 1회 전달 (히스토리 비누적)")
-                    // system 규칙 다음에 앱 카탈로그, 초기 화면, 그다음 목표 user.
                     listOf(messages[0], initialAppCatalog, initialScreenContext) + messages.drop(1)
                 } else {
                     messages
@@ -177,10 +185,19 @@ class ReactAgent(
                     parentRunId = rootRunId,
                 )
 
-                val actionResult = withContext(
-                    if (toolCall.name == "web_search") Dispatchers.IO else Dispatchers.Default,
-                ) {
-                    ToolRegistry.execute(toolCall)
+                val actionResult = when (toolCall.name) {
+                    "ask_user" -> executeAskUser(
+                        toolCall = toolCall,
+                        onEvent = onEvent,
+                        onSpeakQuestion = onSpeakQuestion,
+                        onAskUser = onAskUser,
+                        aborted = { stopRequested.get() },
+                    )
+                    else -> withContext(
+                        if (toolCall.name == "web_search") Dispatchers.IO else Dispatchers.Default,
+                    ) {
+                        ToolRegistry.execute(toolCall)
+                    }
                 }
 
                 tracer.endRun(
@@ -209,6 +226,12 @@ class ReactAgent(
                 }
 
                 if (cancelled()) return false
+
+                if (toolCall.name == "ask_user" &&
+                    actionResult.message.contains("사용자가 작업을 중단")
+                ) {
+                    return false
+                }
 
                 if (!shouldAttachScreenTree(toolCall.name)) {
                     messages.add(llmClient.buildToolResultMessage(toolCall.id, actionResult.message))
@@ -264,6 +287,40 @@ class ReactAgent(
         }
     }
 
+    private suspend fun executeAskUser(
+        toolCall: ToolCall,
+        onEvent: (String) -> Unit,
+        onSpeakQuestion: (String) -> Unit,
+        onAskUser: suspend (AskUserPrompt) -> AskUserAnswer,
+        aborted: () -> Boolean,
+    ): ToolResult {
+        return when (val parsed = ToolRegistry.parseAskUserPrompt(toolCall.args)) {
+            is ToolRegistry.AskUserParseResult.Error -> ToolResult(false, parsed.message)
+            is ToolRegistry.AskUserParseResult.Ok -> {
+                onEvent(
+                    "ReAct: 사용자에게 질문 (${AskUserKind.toApiString(parsed.prompt.kind)})",
+                )
+                val answer = withTimeoutOrNull(ASK_USER_TIMEOUT_MS) {
+                    onAskUser(parsed.prompt)
+                } ?: AskUserAnswer.Timeout
+                AskUserResultFormatter.toToolResult(parsed.prompt.kind, answer)
+            }
+        }
+    }
+
+    private suspend fun askUserDefault(
+        prompt: AskUserPrompt,
+        speakQuestion: (String) -> Unit,
+    ): AskUserAnswer {
+        val service = AgentAccessibilityService.instance
+            ?: return AskUserAnswer.Timeout
+        return service.askUser(
+            prompt = prompt,
+            speakQuestion = speakQuestion,
+            aborted = { stopRequested.get() },
+        )
+    }
+
     private fun formatToolChoice(toolCall: ToolCall): String {
         val reason = toolCall.args["reason"]?.jsonPrimitive?.contentOrNull?.trim()
             ?.takeIf { it.isNotEmpty() }
@@ -286,10 +343,10 @@ class ReactAgent(
     companion object {
         const val MAX_ROUNDS = 10
         const val DEFAULT_FINISH_SUMMARY = "작업을 마쳤습니다."
+        const val ASK_USER_TIMEOUT_MS = 60_000L
 
-        private val NON_SCREEN_TOOLS = setOf("web_search")
+        private val NON_SCREEN_TOOLS = setOf("web_search", "ask_user")
 
-        /** UI·오버레이가 공유하는 단일 인스턴스 (동시 실행 방지). */
         val shared = ReactAgent()
     }
 }
