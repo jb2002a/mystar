@@ -344,7 +344,7 @@ class ReactAgent(
     }
 
     companion object {
-        const val MAX_ROUNDS = 10
+        const val MAX_ROUNDS = 20
         const val DEFAULT_FINISH_SUMMARY = "작업을 마쳤습니다."
         const val ASK_USER_TIMEOUT_MS = 60_000L
 
