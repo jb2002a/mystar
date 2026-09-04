@@ -5,9 +5,12 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.util.Log
 import androidx.core.content.ContextCompat
 import com.mystar.agent.agent.AskUserAnswer
 import com.mystar.agent.agent.AskUserKind
@@ -17,7 +20,6 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withTimeoutOrNull
 
 /** HITL 오버레이용 인앱 SpeechRecognizer. Activity 전환 없이 듣는다. */
 object HitlSpeechRecognizer {
@@ -51,11 +53,11 @@ object HitlSpeechRecognizer {
             }
 
             MicForegroundService.start(appContext)
+            Log.i(TAG, "FGS start, listen timeout=${SPEECH_TIMEOUT_MS}ms kind=$kind")
             onStatus("듣는 중…")
 
-            val spoken = withTimeoutOrNull(SPEECH_TIMEOUT_MS) {
-                listenOnce(appContext, prompt)
-            }
+            val spoken = listenOnce(appContext, prompt)
+            Log.i(TAG, "listenOnce done spoken=${spoken?.take(40) ?: "null"}")
 
             if (spoken.isNullOrBlank()) {
                 ServiceStatus.appendLog("HITL 음성: 결과 없음")
@@ -83,6 +85,7 @@ object HitlSpeechRecognizer {
 
     private fun cancelActiveRecognizer() {
         activeRecognizer.getAndSet(null)?.let { recognizer ->
+            Log.i(TAG, "cancelActiveRecognizer")
             try {
                 recognizer.cancel()
             } catch (_: Exception) {
@@ -98,6 +101,14 @@ object HitlSpeechRecognizer {
         suspendCancellableCoroutine { cont ->
             val recognizer = SpeechRecognizer.createSpeechRecognizer(context)
             activeRecognizer.set(recognizer)
+            var lastPartial: String? = null
+            val mainHandler = Handler(Looper.getMainLooper())
+
+            fun firstRecognition(bundle: Bundle?): String? =
+                bundle?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    ?.firstOrNull()
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
 
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(
@@ -109,10 +120,7 @@ object HitlSpeechRecognizer {
                     RecognizerIntent.EXTRA_PROMPT,
                     prompt.ifEmpty { "답변을 말씀해 주세요" },
                 )
-                putExtra(
-                    RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS,
-                    SPEECH_MIN_LISTEN_MS,
-                )
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 putExtra(
                     RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,
                     SPEECH_SILENCE_MS,
@@ -123,8 +131,11 @@ object HitlSpeechRecognizer {
                 )
             }
 
-            fun finish(text: String?) {
+            lateinit var timeoutRunnable: Runnable
+
+            fun finishInternal(text: String?) {
                 if (!cont.isActive) return
+                mainHandler.removeCallbacks(timeoutRunnable)
                 activeRecognizer.compareAndSet(recognizer, null)
                 try {
                     recognizer.destroy()
@@ -133,7 +144,13 @@ object HitlSpeechRecognizer {
                 cont.resume(text)
             }
 
+            timeoutRunnable = Runnable {
+                Log.i(TAG, "timeout ${SPEECH_TIMEOUT_MS}ms lastPartial=$lastPartial")
+                finishInternal(lastPartial)
+            }
+
             cont.invokeOnCancellation {
+                mainHandler.removeCallbacks(timeoutRunnable)
                 try {
                     recognizer.cancel()
                 } catch (_: Exception) {
@@ -146,35 +163,54 @@ object HitlSpeechRecognizer {
             }
 
             recognizer.setRecognitionListener(object : RecognitionListener {
-                override fun onReadyForSpeech(params: Bundle?) = Unit
+                override fun onReadyForSpeech(params: Bundle?) {
+                    Log.i(TAG, "onReadyForSpeech")
+                }
 
-                override fun onBeginningOfSpeech() = Unit
+                override fun onBeginningOfSpeech() {
+                    Log.i(TAG, "onBeginningOfSpeech")
+                }
 
                 override fun onRmsChanged(rmsdB: Float) = Unit
 
                 override fun onBufferReceived(buffer: ByteArray?) = Unit
 
-                override fun onEndOfSpeech() = Unit
+                override fun onEndOfSpeech() {
+                    Log.i(TAG, "onEndOfSpeech lastPartial=$lastPartial")
+                    if (lastPartial != null) {
+                        finishInternal(lastPartial)
+                    }
+                }
 
                 override fun onError(error: Int) {
                     val message = errorMessage(error)
-                    ServiceStatus.appendLog("HITL 음성: 오류 — $message ($error)")
-                    finish(null)
+                    Log.e(TAG, "onError $message ($error) lastPartial=$lastPartial")
+                    if (lastPartial == null) {
+                        ServiceStatus.appendLog("HITL 음성: 오류 — $message ($error)")
+                    }
+                    finishInternal(lastPartial)
                 }
 
                 override fun onResults(results: Bundle?) {
-                    val spoken = results
-                        ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                        ?.firstOrNull()
-                        ?.trim()
-                    finish(spoken?.takeIf { it.isNotEmpty() })
+                    val finalResult = firstRecognition(results)
+                    val selected = finalResult ?: lastPartial
+                    Log.i(TAG, "onResults final=$finalResult selected=$selected")
+                    finishInternal(selected)
                 }
 
-                override fun onPartialResults(partialResults: Bundle?) = Unit
+                override fun onPartialResults(partialResults: Bundle?) {
+                    val partial = firstRecognition(partialResults) ?: return
+                    lastPartial = partial
+                    Log.i(TAG, "onPartialResults $partial")
+                }
 
-                override fun onEvent(eventType: Int, params: Bundle?) = Unit
+                override fun onEvent(eventType: Int, params: Bundle?) {
+                    Log.i(TAG, "onEvent type=$eventType")
+                }
             })
 
+            Log.i(TAG, "startListening lang=${Locale.KOREA.toLanguageTag()}")
+            mainHandler.postDelayed(timeoutRunnable, SPEECH_TIMEOUT_MS)
             recognizer.startListening(intent)
         }
 
@@ -191,7 +227,7 @@ object HitlSpeechRecognizer {
         else -> "알 수 없음"
     }
 
-    private const val SPEECH_MIN_LISTEN_MS = 8_000
+    private const val TAG = "HitlStt"
     private const val SPEECH_SILENCE_MS = 3_000
-    private const val SPEECH_TIMEOUT_MS = 45_000L
+    private const val SPEECH_TIMEOUT_MS = 8_000L
 }

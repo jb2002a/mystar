@@ -700,6 +700,7 @@ class AgentAccessibilityService : AccessibilityService() {
 }
 
 object ServiceStatus {
+    private const val TAG = "MyStar"
     private const val PREFS_NAME = "mystar_agent_prefs"
     private const val KEY_OVERLAY_ENABLED = "overlay_enabled"
 
@@ -760,6 +761,7 @@ object ServiceStatus {
             logLines.removeAt(0)
         }
         _logs.value = logLines.toList()
+        Log.i(TAG, message)
     }
 
     fun refreshFromInstance() {

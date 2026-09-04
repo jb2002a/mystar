@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 
 /** HITL 인앱 STT 구간에만 마이크 포그라운드 권한을 확보한다. */
@@ -24,6 +25,7 @@ class MicForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                Log.i(TAG, "stop")
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return START_NOT_STICKY
@@ -40,6 +42,7 @@ class MicForegroundService : Service() {
             @Suppress("DEPRECATION")
             startForeground(NOTIFICATION_ID, notification)
         }
+        Log.i(TAG, "startForeground")
         return START_NOT_STICKY
     }
 
@@ -67,6 +70,7 @@ class MicForegroundService : Service() {
     }
 
     companion object {
+        private const val TAG = "HitlMicFgs"
         private const val CHANNEL_ID = "hitl_mic"
         private const val NOTIFICATION_ID = 1001
         private const val ACTION_STOP = "com.mystar.agent.action.STOP_MIC_FGS"

@@ -76,10 +76,9 @@ class HitlOverlayHost(private val service: AgentAccessibilityService) {
             ) {
                 if (answered) return
                 when {
-                    answer is AskUserAnswer.Text && prompt.kind == AskUserKind.MISSING_INFO &&
-                        handles.input != null -> {
-                        handles.input.setText(answer.value)
+                    answer is AskUserAnswer.Text && prompt.kind == AskUserKind.MISSING_INFO -> {
                         setStatus("")
+                        handles.completeOnce(answer)
                     }
                     answer is AskUserAnswer.Approved || answer is AskUserAnswer.Rejected -> {
                         setStatus("")
