@@ -63,7 +63,7 @@ object ToolRegistry {
         ),
         ToolDefinition(
             name = "web_search",
-            description = "웹 검색 API로 시세·사실 등 웹 정보를 가져온다. 날씨 조회에는 쓰지 않는다(크롬 open_app 사용). 구글/크롬을 열지 않는다. 카톡 친구·설정 항목 등 앱 안 검색에는 쓰지 않는다.",
+            description = "웹 검색 API로 시세·사실 등 웹 정보를 가져온다. 날씨 조회에는 쓰지 않는다(네이버 open_app 사용). 구글/크롬을 열지 않는다. 카톡 친구·설정 항목 등 앱 안 검색에는 쓰지 않는다.",
             parameters = objectSchema(
                 "query" to stringProp("검색어"),
                 "reason" to reasonProp(),
