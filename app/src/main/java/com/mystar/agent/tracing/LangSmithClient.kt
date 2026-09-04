@@ -212,7 +212,8 @@ class LangSmithClient(
             val redacted = if (
                 text.contains("screen tree") ||
                 text.contains("현재 화면 트리") ||
-                text.contains("<initial_screen>")
+                text.contains("<initial_screen>") ||
+                text.contains("<current_screen>")
             ) {
                 truncateTree(text)
             } else if (text.length > MAX_CONTENT_CHARS * 2) {

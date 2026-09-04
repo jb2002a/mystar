@@ -23,9 +23,9 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 /**
- * M4: reason → act → (안정화 + 최신 트리 tool_result) 반복.
- * 행동 도구: open_app / tap_node / input_text / back / scroll.
- * 비화면 도구: web_search / ask_user (finish 제외).
+ * M4: reason → act → (안정화 + 최신 트리 갱신) 반복.
+ * 영속 히스토리: system + 목표 + assistant/tool 실행 내역.
+ * 현재 화면 트리: latestScreen으로 매 LLM 요청 끝에 단발 주입.
  */
 class ReactAgent(
     private val llmClient: CloudLlmClient = CloudLlmClient(),
@@ -147,20 +147,55 @@ class ReactAgent(
             )
             val initialAppCatalog = llmClient.buildInitialAppCatalogMessage(appCatalog)
             // val initialScreenContext = llmClient.buildInitialScreenContextMessage(initialTree)
+            var latestScreen: String? = null
+
+            suspend fun refreshLatestScreen(expectedPackage: String? = null) {
+                onEvent(
+                    "ReAct: 안정화 대기 (quiet=${AgentAccessibilityService.QUIET_WINDOW_MS}ms" +
+                        " / hard=${AgentAccessibilityService.HARD_TIMEOUT_MS}ms" +
+                        expectedPackage?.let { " / pkg=$it" }.orEmpty() +
+                        ")",
+                )
+                val outcome = service.waitForUiSettle(
+                    expectedPackage = expectedPackage,
+                    aborted = { stopRequested.get() },
+                )
+                if (cancelled()) return
+                val settleLabel = if (outcome == StabilizeOutcome.QUIET) "quiet" else "hard timeout"
+                onEvent("ReAct: 안정화 종료 ($settleLabel)")
+
+                val tree = withContext(Dispatchers.Default) {
+                    service.getScreenTree()
+                }
+                if (tree != null) {
+                    val nodes = tree.lines().count { it.isNotBlank() }
+                    onEvent("ReAct: 트리 갱신 ($nodes nodes)")
+                    latestScreen = tree
+                } else {
+                    onEvent("ReAct: 트리 null (root 없음)")
+                    latestScreen = null
+                }
+            }
+
+            fun buildRequestMessages(round: Int): List<JsonObject> {
+                val base = if (round == 1) {
+                    onEvent("ReAct: 앱 카탈로그 1회 전달 (히스토리 비누적)")
+                    listOf(messages[0], initialAppCatalog) + messages.drop(1)
+                } else {
+                    messages
+                }
+                val screen = latestScreen ?: return base
+                val nodes = screen.lines().count { it.isNotBlank() }
+                onEvent("ReAct: 현재 화면 단발 주입 ($nodes nodes)")
+                return base + llmClient.buildCurrentScreenMessage(screen)
+            }
 
             for (round in 1..MAX_ROUNDS) {
                 if (cancelled()) return false
                 completedRounds = round
                 onEvent("ReAct: 라운드 $round/$MAX_ROUNDS")
 
-                val requestMessages = if (round == 1) {
-                    onEvent("ReAct: 앱 카탈로그 1회 전달 (히스토리 비누적)")
-                    listOf(messages[0], initialAppCatalog) + messages.drop(1)
-                    // onEvent("ReAct: 앱 카탈로그·초기 트리 1회 전달 (히스토리 비누적)")
-                    // listOf(messages[0], initialAppCatalog, initialScreenContext) + messages.drop(1)
-                } else {
-                    messages
-                }
+                val requestMessages = buildRequestMessages(round)
                 val llmResult = llmClient.chooseNextTool(requestMessages, parentRunId = rootRunId)
                 val (toolCall, assistantMessage) = when (llmResult) {
                     is LlmResult.Success -> llmResult.toolCall to llmResult.assistantMessage
@@ -236,54 +271,19 @@ class ReactAgent(
                     return false
                 }
 
-                if (!shouldAttachScreenTree(toolCall.name)) {
-                    messages.add(llmClient.buildToolResultMessage(toolCall.id, actionResult.message))
-                    val status = if (actionResult.success) "OK" else "실패"
-                    onEvent("ReAct: 결과 $status — ${actionResult.message.lineSequence().first()}")
-                    continue
-                }
-
-                val expectedPackage = if (toolCall.name == "open_app") {
-                    toolCall.args["package"]?.jsonPrimitive?.contentOrNull?.trim()?.ifEmpty { null }
-                } else {
-                    null
-                }
-                onEvent(
-                    "ReAct: 안정화 대기 (quiet=${AgentAccessibilityService.QUIET_WINDOW_MS}ms" +
-                        " / hard=${AgentAccessibilityService.HARD_TIMEOUT_MS}ms" +
-                        expectedPackage?.let { " / pkg=$it" }.orEmpty() +
-                        ")",
-                )
-                val outcome = service.waitForUiSettle(
-                    expectedPackage = expectedPackage,
-                    aborted = { stopRequested.get() },
-                )
-                if (cancelled()) return false
-                val settleLabel = if (outcome == StabilizeOutcome.QUIET) "quiet" else "hard timeout"
-                onEvent("ReAct: 안정화 종료 ($settleLabel)")
-
-                val latestTree = withContext(Dispatchers.Default) {
-                    service.getScreenTree()
-                }
-                val treeBlock = if (latestTree != null) {
-                    val nodes = latestTree.lines().count { it.isNotBlank() }
-                    onEvent("ReAct: 트리 갱신 ($nodes nodes)")
-                    "screen tree ($nodes nodes):\n$latestTree"
-                } else {
-                    onEvent("ReAct: 트리 null (root 없음)")
-                    "screen tree: null (root 없음)"
-                }
-
-                val resultContent = buildString {
-                    append(actionResult.message)
-                    appendLine()
-                    appendLine()
-                    append(treeBlock)
-                }
-                messages.add(llmClient.buildToolResultMessage(toolCall.id, resultContent))
-
+                messages.add(llmClient.buildToolResultMessage(toolCall.id, actionResult.message))
                 val status = if (actionResult.success) "OK" else "실패"
                 onEvent("ReAct: 결과 $status — ${actionResult.message.lineSequence().first()}")
+
+                if (toolCall.name !in NON_SCREEN_TOOLS) {
+                    val expectedPackage = if (toolCall.name == "open_app") {
+                        toolCall.args["package"]?.jsonPrimitive?.contentOrNull?.trim()?.ifEmpty { null }
+                    } else {
+                        null
+                    }
+                    refreshLatestScreen(expectedPackage)
+                }
+                if (cancelled()) return false
             }
 
             onEvent("ReAct: 최대 라운드($MAX_ROUNDS) 도달 — 중단 (완료 여부 불명확)")
@@ -350,10 +350,6 @@ class ReactAgent(
         }
         val argsSuffix = if (otherArgs.isEmpty()) "" else " $otherArgs"
         return "ReAct: 선택 ${toolCall.name} — $reason$argsSuffix"
-    }
-
-    private fun shouldAttachScreenTree(toolName: String): Boolean {
-        return toolName !in NON_SCREEN_TOOLS
     }
 
     companion object {
