@@ -37,12 +37,16 @@ M6  speak → M7  back → M8  scroll → M9  web_search → M10  ask_user → M
 
 마일스톤을 **구현 완료로 끝낼 때마다** 홈 화면 왼쪽 상단 마일스톤 라벨을 해당 단계로 갱신한다. 기능만 넣고 라벨을 그대로 두지 않는다.
 
+기능 구현·수정마다 앱 버전을 `0.xx` 형식으로 한 단계 올린다. 기능만 넣고 버전을 그대로 두지 않는다. 세부는 `.cursor/rules/versioning.mdc`를 따른다.
+
 | 항목 | 위치 | 형식 예 |
 |---|---|---|
 | 홈 화면 마일스톤 라벨 | `app/src/main/java/com/mystar/agent/MainActivity.kt` — `AgentHomeScreen` 제목 아래 `Text` | `M6 — finish 결과 TTS`, `M7 — back` |
-| (선택) 앱 버전명 | `app/build.gradle.kts` — `versionName` | 포스트 MVP 전체를 묶어 올릴 때만 조정 |
+| 앱 버전명 | `app/build.gradle.kts` — `versionName` | `0.1`, `0.2`, `0.3` |
+| 앱 버전 코드 | `app/build.gradle.kts` — `versionCode` | `1`, `2`, `3` (`versionName`과 함께 +1) |
 
 - 라벨 문구는 **마일스톤 번호 + 한 줄 요약**으로 맞춘다.
+- 마일스톤 라벨과 `0.xx` 앱 버전은 별개다. 마일스톤을 끝낼 때는 둘 다 갱신한다.
 - 각 마일스톤 **할 일**·**완료 기준(DoD)** 에 버전 갱신 체크가 있으면, 구현 PR/커밋에 포함했는지 함께 확인한다.
 
 ---
