@@ -706,7 +706,7 @@ object ServiceStatus {
     private val _connected = MutableStateFlow(AgentAccessibilityService.isBound())
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
 
-    private val _overlayEnabled = MutableStateFlow(true)
+    private val _overlayEnabled = MutableStateFlow(false)
     val overlayEnabled: StateFlow<Boolean> = _overlayEnabled.asStateFlow()
 
     private val _pendingGoal = MutableStateFlow(
@@ -725,7 +725,7 @@ object ServiceStatus {
 
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        _overlayEnabled.value = prefs.getBoolean(KEY_OVERLAY_ENABLED, true)
+        _overlayEnabled.value = prefs.getBoolean(KEY_OVERLAY_ENABLED, false)
         refreshHitlMicPermission(context)
     }
 
