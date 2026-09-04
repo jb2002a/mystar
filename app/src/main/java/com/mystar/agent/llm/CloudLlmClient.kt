@@ -449,7 +449,7 @@ web_search 규칙:
 - web_search가 실패하면 open_app으로 구글을 열지 않는다. 실패를 finish(summary)로 사용자에게 말한다.
 
 ask_user 규칙:
-- 목표에 없는 필수 정보(수신자, 날짜, 도착역 등)가 있으면 추측하지 말고 ask_user(kind=missing_info)로 묻는다. 한 호출에 하나만.
+- 목표에 없는 필수 정보(수신자, 보낼 메시지 내용, 날짜, 도착역 등)가 있으면 추측하지 말고 ask_user(kind=missing_info)로 묻는다. 한 호출에 하나만. 카톡 전송에서 수신자나 메시지 내용이 없으면 지어내지 않는다.
 - 전송·결제·구매·가입완료·동의 등 되돌릴 수 없는 탭 직전에 ask_user(kind=confirm)으로 승인을 받는다.
 - 목록 탭·스크롤·open_app·back에는 ask_user를 쓰지 않는다.
 - 정보가 완전한 카톡 목표도 전송 버튼 직전 confirm은 유지한다.

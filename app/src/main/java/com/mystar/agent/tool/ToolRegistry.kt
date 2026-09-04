@@ -73,7 +73,7 @@ object ToolRegistry {
         ToolDefinition(
             name = "ask_user",
             description = "루프를 멈추고 사용자에게 질문한다. 한 호출에 하나만. " +
-                "kind=missing_info: 목표에 없는 필수 정보를 묻는다(자유 텍스트 답). " +
+                "kind=missing_info: 목표에 없는 필수 정보(수신자, 보낼 메시지 내용, 날짜, 도착역 등)를 묻는다(자유 텍스트 답). " +
                 "kind=confirm: 전송·결제·구매·가입완료·동의 등 되돌릴 수 없는 탭 직전에 승인/거절을 받는다. " +
                 "확인 후 실제 탭은 tap_node가 한다. ask_user는 finish가 아니다.",
             parameters = objectSchema(
