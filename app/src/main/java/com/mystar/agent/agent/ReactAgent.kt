@@ -243,8 +243,21 @@ class ReactAgent(
                     continue
                 }
 
-                onEvent("ReAct: 안정화 대기 (quiet=${AgentAccessibilityService.QUIET_WINDOW_MS}ms / hard=${AgentAccessibilityService.HARD_TIMEOUT_MS}ms)")
-                val outcome = service.waitForUiSettle(aborted = { stopRequested.get() })
+                val expectedPackage = if (toolCall.name == "open_app") {
+                    toolCall.args["package"]?.jsonPrimitive?.contentOrNull?.trim()?.ifEmpty { null }
+                } else {
+                    null
+                }
+                onEvent(
+                    "ReAct: 안정화 대기 (quiet=${AgentAccessibilityService.QUIET_WINDOW_MS}ms" +
+                        " / hard=${AgentAccessibilityService.HARD_TIMEOUT_MS}ms" +
+                        expectedPackage?.let { " / pkg=$it" }.orEmpty() +
+                        ")",
+                )
+                val outcome = service.waitForUiSettle(
+                    expectedPackage = expectedPackage,
+                    aborted = { stopRequested.get() },
+                )
                 if (cancelled()) return false
                 val settleLabel = if (outcome == StabilizeOutcome.QUIET) "quiet" else "hard timeout"
                 onEvent("ReAct: 안정화 종료 ($settleLabel)")
