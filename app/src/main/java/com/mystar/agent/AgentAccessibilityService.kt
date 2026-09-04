@@ -59,6 +59,8 @@ class AgentAccessibilityService : AccessibilityService() {
     private val nodeCoords = ConcurrentHashMap<String, Point>()
     /** M8: 마지막 getScreenTree()의 scrollable node id → 스크롤 액션용 노드 복사본. */
     private val nodeScrollRefs = ConcurrentHashMap<String, AccessibilityNodeInfo>()
+    /** 마지막 getScreenTree()의 박스 시각화 스냅샷. */
+    private val uiBoxSnapshot = mutableListOf<UiBox>()
     private val nodeCounter = AtomicInteger(0)
 
     /** WINDOW_STATE/CONTENT_CHANGED 마지막 수신 시각 (elapsedRealtime). */
@@ -67,6 +69,7 @@ class AgentAccessibilityService : AccessibilityService() {
     private var overlayDumpButton: Button? = null
     private var overlayLlmButton: Button? = null
     private var dumpOverlayHiddenForHitl = false
+    private val treeBoxOverlay = TreeBoxOverlay(this)
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val hitlOverlayHost = HitlOverlayHost(this)
@@ -168,6 +171,7 @@ class AgentAccessibilityService : AccessibilityService() {
         val visibility = if (dumpOverlayHiddenForHitl) android.view.View.GONE else android.view.View.VISIBLE
         overlayDumpButton?.visibility = visibility
         overlayLlmButton?.visibility = visibility
+        treeBoxOverlay.setVisible(!dumpOverlayHiddenForHitl)
     }
 
     /** M2용: 마지막 getScreenTree() 스냅샷의 node id → 중심 좌표. */
@@ -483,6 +487,7 @@ class AgentAccessibilityService : AccessibilityService() {
         val root = rootInActiveWindow ?: return null
         clearScrollRefs()
         nodeCoords.clear()
+        uiBoxSnapshot.clear()
         nodeCounter.set(0)
         val sb = StringBuilder()
         try {
@@ -490,7 +495,16 @@ class AgentAccessibilityService : AccessibilityService() {
         } finally {
             root.recycle()
         }
+        refreshBoxOverlayIfVisible()
         return sb.toString()
+    }
+
+    private fun refreshBoxOverlayIfVisible() {
+        if (!ServiceStatus.overlayEnabled.value || dumpOverlayHiddenForHitl) return
+        if (overlayDumpButton == null) return
+        mainHandler.post {
+            treeBoxOverlay.update(uiBoxSnapshot.toList())
+        }
     }
 
     fun dumpScreenTreeToLog() {
@@ -557,6 +571,22 @@ class AgentAccessibilityService : AccessibilityService() {
             if (node.isCheckable) line.append(if (node.isChecked) " on" else " off")
 
             sb.append(line).append('\n')
+
+            val kind = when {
+                node.isScrollable -> UiBox.Kind.SCROLL
+                node.isClickable -> UiBox.Kind.TAP
+                node.isEditable -> UiBox.Kind.EDIT
+                node.isCheckable -> UiBox.Kind.CHECK
+                else -> UiBox.Kind.GENERIC
+            }
+            uiBoxSnapshot.add(
+                UiBox(
+                    id = nodeId,
+                    bounds = Rect(bounds),
+                    label = label,
+                    kind = kind,
+                ),
+            )
         }
 
         val childDepth = if (isMeaningful) depth + 1 else depth
@@ -599,16 +629,20 @@ class AgentAccessibilityService : AccessibilityService() {
     private fun showDumpOverlay() {
         if (overlayDumpButton != null) return
 
+        treeBoxOverlay.show()
+
         val dumpButton = Button(this).apply {
             text = "덤프"
             textSize = 12f
             setPadding(24, 12, 24, 12)
+            importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
             setOnClickListener { dumpScreenTreeToLog() }
         }
         val llmButton = Button(this).apply {
             text = "Finish"
             textSize = 12f
             setPadding(24, 12, 24, 12)
+            importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
             setOnClickListener {
                 if (ReactAgent.shared.requestStop()) {
                     ServiceStatus.appendLog("ReAct: 강제 종료 요청")
@@ -649,15 +683,21 @@ class AgentAccessibilityService : AccessibilityService() {
             wm.addView(llmButton, llmParams)
             overlayDumpButton = dumpButton
             overlayLlmButton = llmButton
-            ServiceStatus.appendLog("오버레이 표시됨 (덤프 / Finish)")
+            applyDumpOverlayVisibility()
+            getScreenTree()
+            ServiceStatus.appendLog("오버레이 표시됨 (덤프 / Finish / 박스)")
             Log.i(TAG, "overlay shown")
         } catch (e: Exception) {
+            treeBoxOverlay.remove()
+            overlayDumpButton = null
+            overlayLlmButton = null
             ServiceStatus.appendLog("오버레이 실패: ${e.message}")
             Log.e(TAG, "failed to show overlay", e)
         }
     }
 
     private fun removeDumpOverlay() {
+        treeBoxOverlay.remove()
         val wm = getSystemService(WINDOW_SERVICE) as WindowManager
         overlayDumpButton?.let { button ->
             try {

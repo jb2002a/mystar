@@ -329,7 +329,7 @@ private fun AgentHomeScreen(
                     )
                     if (connected) {
                         Text(
-                            text = "화면에 덤프 / Finish 버튼을 표시합니다",
+                            text = "화면에 노드 박스·덤프·Finish 버튼을 표시합니다",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
