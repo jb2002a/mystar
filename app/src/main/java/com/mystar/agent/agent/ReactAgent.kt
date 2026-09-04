@@ -53,7 +53,7 @@ class ReactAgent(
         goal: String,
         onEvent: (String) -> Unit = {},
         onFinishSummary: (String) -> Unit = {},
-        onSpeakQuestion: (String) -> Unit = {},
+        onSpeakQuestion: suspend (String) -> Unit = {},
         onAskUser: suspend (AskUserPrompt) -> AskUserAnswer = { prompt ->
             askUserDefault(prompt, onSpeakQuestion)
         },
@@ -75,7 +75,7 @@ class ReactAgent(
         goal: String,
         onEvent: (String) -> Unit,
         onFinishSummary: (String) -> Unit,
-        onSpeakQuestion: (String) -> Unit,
+        onSpeakQuestion: suspend (String) -> Unit,
         onAskUser: suspend (AskUserPrompt) -> AskUserAnswer,
     ): Boolean {
         if (goal.isEmpty()) {
@@ -290,7 +290,7 @@ class ReactAgent(
     private suspend fun executeAskUser(
         toolCall: ToolCall,
         onEvent: (String) -> Unit,
-        onSpeakQuestion: (String) -> Unit,
+        onSpeakQuestion: suspend (String) -> Unit,
         onAskUser: suspend (AskUserPrompt) -> AskUserAnswer,
         aborted: () -> Boolean,
     ): ToolResult {
@@ -310,7 +310,7 @@ class ReactAgent(
 
     private suspend fun askUserDefault(
         prompt: AskUserPrompt,
-        speakQuestion: (String) -> Unit,
+        speakQuestion: suspend (String) -> Unit,
     ): AskUserAnswer {
         val service = AgentAccessibilityService.instance
             ?: return AskUserAnswer.Timeout

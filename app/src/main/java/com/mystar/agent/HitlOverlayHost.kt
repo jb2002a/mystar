@@ -18,6 +18,8 @@ import com.mystar.agent.agent.AskUserKind
 import com.mystar.agent.agent.AskUserPrompt
 import com.mystar.agent.agent.AskUserResultFormatter
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
@@ -33,26 +35,91 @@ class HitlOverlayHost(private val service: AgentAccessibilityService) {
     private var onAnswer: ((AskUserAnswer) -> Unit)? = null
     private var answered = false
 
+    private data class PanelHandles(
+        val input: EditText?,
+        val completeOnce: (AskUserAnswer) -> Unit,
+    )
+
     suspend fun askUser(
         prompt: AskUserPrompt,
-        speakQuestion: (String) -> Unit,
+        speakQuestion: suspend (String) -> Unit,
         aborted: () -> Boolean,
     ): AskUserAnswer = withContext(Dispatchers.Main) {
         suspendCancellableCoroutine { cont ->
             answered = false
+            var autoListenJob: Job? = null
+
             fun finish(answer: AskUserAnswer) {
                 if (answered) return
                 answered = true
+                autoListenJob?.cancel()
                 dismissPanel()
                 if (cont.isActive) cont.resume(answer)
             }
 
-            showPanel(prompt) { answer ->
+            fun applySpeechAnswer(
+                answer: AskUserAnswer?,
+                handles: PanelHandles,
+            ) {
+                if (answered) return
+                when {
+                    answer is AskUserAnswer.Text && prompt.kind == AskUserKind.MISSING_INFO &&
+                        handles.input != null -> handles.input.setText(answer.value)
+                    answer is AskUserAnswer.Approved || answer is AskUserAnswer.Rejected ->
+                        handles.completeOnce(answer)
+                    answer is AskUserAnswer.Text && prompt.kind == AskUserKind.CONFIRM -> {
+                        val parsed = AskUserResultFormatter.parseConfirmSpeech(answer.value)
+                        if (parsed != null) {
+                            handles.completeOnce(parsed)
+                        } else {
+                            ServiceStatus.appendLog(
+                                "HITL: confirm 음성 불명확 — ${answer.value}",
+                            )
+                        }
+                    }
+                    answer != null -> handles.completeOnce(answer)
+                }
+            }
+
+            suspend fun recognizeAndApply(handles: PanelHandles) {
+                val answer = AskUserSpeechCoordinator.recognize(
+                    service,
+                    prompt.question,
+                    prompt.kind,
+                )
+                mainHandler.post {
+                    applySpeechAnswer(answer, handles)
+                }
+            }
+
+            fun startHitlSpeech(handles: PanelHandles) {
+                autoListenJob?.cancel()
+                autoListenJob = service.launchScopeForHitl {
+                    recognizeAndApply(handles)
+                }
+            }
+
+            val handles = showPanel(prompt) { answer ->
                 finish(answer)
             }
 
-            speakQuestion(prompt.question)
-            ServiceStatus.appendLog("HITL: 질문 (${AskUserKind.toApiString(prompt.kind)}) — ${prompt.question}")
+            ServiceStatus.appendLog(
+                "HITL: 질문 (${AskUserKind.toApiString(prompt.kind)}) — ${prompt.question}",
+            )
+
+            autoListenJob = service.launchScopeForHitl {
+                speakQuestion(prompt.question)
+                if (answered) return@launchScopeForHitl
+                delay(POST_TTS_DELAY_MS)
+                if (answered) return@launchScopeForHitl
+                recognizeAndApply(handles)
+            }
+
+            val micBtn = panelRoot?.findViewWithTag(MIC_BUTTON_TAG) as? Button
+            micBtn?.setOnClickListener {
+                autoListenJob?.cancel()
+                startHitlSpeech(handles)
+            }
 
             val pollRunnable = object : Runnable {
                 override fun run() {
@@ -66,6 +133,7 @@ class HitlOverlayHost(private val service: AgentAccessibilityService) {
             }
             mainHandler.postDelayed(pollRunnable, ABORT_POLL_MS)
             cont.invokeOnCancellation {
+                autoListenJob?.cancel()
                 mainHandler.removeCallbacks(pollRunnable)
                 mainHandler.post {
                     if (!answered) {
@@ -81,7 +149,10 @@ class HitlOverlayHost(private val service: AgentAccessibilityService) {
         mainHandler.post { dismissPanel() }
     }
 
-    private fun showPanel(prompt: AskUserPrompt, onResult: (AskUserAnswer) -> Unit) {
+    private fun showPanel(
+        prompt: AskUserPrompt,
+        onResult: (AskUserAnswer) -> Unit,
+    ): PanelHandles {
         dismissPanel()
         onAnswer = onResult
 
@@ -123,9 +194,11 @@ class HitlOverlayHost(private val service: AgentAccessibilityService) {
             callback(answer)
         }
 
+        var input: EditText? = null
+
         when (prompt.kind) {
             AskUserKind.MISSING_INFO -> {
-                val input = EditText(service).apply {
+                input = EditText(service).apply {
                     hint = "답변 입력"
                     setTextColor(Color.WHITE)
                     setHintTextColor(Color.GRAY)
@@ -136,22 +209,8 @@ class HitlOverlayHost(private val service: AgentAccessibilityService) {
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                 ).apply { bottomMargin = pad / 2 })
 
-                val micBtn = makeButton("🎤") {
-                    service.launchScopeForHitl {
-                        val answer = AskUserSpeechCoordinator.recognize(
-                            service,
-                            prompt.question,
-                            prompt.kind,
-                        )
-                        mainHandler.post {
-                            if (answer is AskUserAnswer.Text) {
-                                input.setText(answer.value)
-                            } else if (answer != null) {
-                                completeOnce(answer)
-                            }
-                        }
-                    }
-                }
+                val micBtn = makeButton("🎤") { }
+                micBtn.tag = MIC_BUTTON_TAG
                 val okBtn = makeButton("확인") {
                     val text = input.text?.toString()?.trim().orEmpty()
                     if (text.isNotEmpty()) completeOnce(AskUserAnswer.Text(text))
@@ -166,31 +225,8 @@ class HitlOverlayHost(private val service: AgentAccessibilityService) {
                 val approveBtn = makeButton("승인") {
                     completeOnce(AskUserAnswer.Approved)
                 }
-                val micBtn = makeButton("🎤") {
-                    service.launchScopeForHitl {
-                        val answer = AskUserSpeechCoordinator.recognize(
-                            service,
-                            prompt.question,
-                            prompt.kind,
-                        )
-                        mainHandler.post {
-                            when (answer) {
-                                is AskUserAnswer.Approved, AskUserAnswer.Rejected -> completeOnce(answer)
-                                is AskUserAnswer.Text -> {
-                                    val parsed = AskUserResultFormatter.parseConfirmSpeech(answer.value)
-                                    if (parsed != null) {
-                                        completeOnce(parsed)
-                                    } else {
-                                        ServiceStatus.appendLog(
-                                            "HITL: confirm 음성 불명확 — ${answer.value}",
-                                        )
-                                    }
-                                }
-                                else -> Unit
-                            }
-                        }
-                    }
-                }
+                val micBtn = makeButton("🎤") { }
+                micBtn.tag = MIC_BUTTON_TAG
                 buttonRow.addView(micBtn)
                 buttonRow.addView(rejectBtn)
                 buttonRow.addView(approveBtn)
@@ -211,6 +247,8 @@ class HitlOverlayHost(private val service: AgentAccessibilityService) {
         wm.addView(root, params)
         panelRoot = root
         service.setDumpOverlayHidden(true)
+
+        return PanelHandles(input = input, completeOnce = ::completeOnce)
     }
 
     private fun makeButton(label: String, onClick: () -> Unit): Button {
@@ -238,5 +276,7 @@ class HitlOverlayHost(private val service: AgentAccessibilityService) {
 
     companion object {
         private const val ABORT_POLL_MS = 200L
+        private const val POST_TTS_DELAY_MS = 400L
+        private const val MIC_BUTTON_TAG = "hitl_mic_button"
     }
 }

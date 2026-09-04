@@ -31,6 +31,7 @@ import com.mystar.agent.agent.AskUserPrompt
 import com.mystar.agent.tool.ToolRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -143,13 +144,13 @@ class AgentAccessibilityService : AccessibilityService() {
     }
 
     /** HITL 음성 인식 등 서비스에서 시작하는 코루틴. */
-    fun launchScopeForHitl(block: suspend () -> Unit) {
-        serviceScope.launch { block() }
+    fun launchScopeForHitl(block: suspend () -> Unit): Job {
+        return serviceScope.launch { block() }
     }
 
     suspend fun askUser(
         prompt: AskUserPrompt,
-        speakQuestion: (String) -> Unit,
+        speakQuestion: suspend (String) -> Unit,
         aborted: () -> Boolean,
     ): AskUserAnswer = hitlOverlayHost.askUser(prompt, speakQuestion, aborted)
 

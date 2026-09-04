@@ -81,7 +81,10 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    AgentHomeScreen(onSpeakFinish = { ttsHelper.speak(it) })
+                    AgentHomeScreen(
+                        onSpeakFinish = { ttsHelper.speak(it) },
+                        onSpeakQuestion = { ttsHelper.speakAwaitingDone(it) },
+                    )
                 }
             }
         }
@@ -99,7 +102,10 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun AgentHomeScreen(onSpeakFinish: (String) -> Unit) {
+private fun AgentHomeScreen(
+    onSpeakFinish: (String) -> Unit,
+    onSpeakQuestion: suspend (String) -> Unit,
+) {
     val context = LocalContext.current
     val connected by ServiceStatus.connected.collectAsStateWithLifecycle()
     val overlayEnabled by ServiceStatus.overlayEnabled.collectAsStateWithLifecycle()
@@ -121,7 +127,7 @@ private fun AgentHomeScreen(onSpeakFinish: (String) -> Unit) {
                     goal = goal,
                     onEvent = { msg -> ServiceStatus.appendLog(msg) },
                     onFinishSummary = onSpeakFinish,
-                    onSpeakQuestion = onSpeakFinish,
+                    onSpeakQuestion = onSpeakQuestion,
                 )
             } finally {
                 reactRunning = false
