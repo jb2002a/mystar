@@ -198,28 +198,16 @@ class AgentAccessibilityService : AccessibilityService() {
                 if (lastFingerprint != fingerprint) {
                     stableCount = 1
                     lastFingerprint = fingerprint
-                    Log.i(
-                        TAG,
-                        "settle skip unstable stable=$stableCount/$STABLE_NEEDED " +
-                            "${formatReadySnap(snap)} elapsed=${elapsed}ms",
-                    )
+                    ServiceStatus.appendLog("안정화 검사 $stableCount/$STABLE_NEEDED")
                     delay(STABILIZE_POLL_MS)
                     continue
                 }
                 stableCount++
                 if (stableCount >= STABLE_NEEDED) {
-                    Log.i(
-                        TAG,
-                        "settle quiet stable=$stableCount/$STABLE_NEEDED " +
-                            "${formatReadySnap(snap)} elapsed=${elapsed}ms",
-                    )
+                    ServiceStatus.appendLog("안정화 검사 $stableCount/$STABLE_NEEDED")
                     return StabilizeOutcome.QUIET
                 }
-                Log.i(
-                    TAG,
-                    "settle skip unstable stable=$stableCount/$STABLE_NEEDED " +
-                        "${formatReadySnap(snap)} elapsed=${elapsed}ms",
-                )
+                ServiceStatus.appendLog("안정화 검사 $stableCount/$STABLE_NEEDED")
                 delay(STABILIZE_POLL_MS)
                 continue
             }
