@@ -1,5 +1,6 @@
 package com.mystar.agent.search
 
+import android.util.Log
 import com.mystar.agent.BuildConfig
 import com.mystar.agent.tool.ToolResult
 import java.net.URLEncoder
@@ -27,6 +28,7 @@ class WebSearchClient(
 
     fun search(query: String): ToolResult {
         if (apiKey.isBlank()) {
+            Log.w(TAG, "Brave req skipped: WEB_SEARCH_API_KEY 미설정")
             return ToolResult(false, "WEB_SEARCH_API_KEY 미설정 (local.properties)")
         }
 
@@ -35,6 +37,8 @@ class WebSearchClient(
             val url =
                 "https://api.search.brave.com/res/v1/web/search" +
                     "?q=$encodedQuery&count=$MAX_RESULTS&country=KR&search_lang=ko"
+
+            Log.i(TAG, "Brave req → query=\"$query\" count=$MAX_RESULTS")
 
             val request = Request.Builder()
                 .url(url)
@@ -45,6 +49,8 @@ class WebSearchClient(
 
             httpClient.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
+                Log.i(TAG, "Brave res ← HTTP ${response.code} (${body.length} chars)")
+                logChunked(TAG, "Brave res body", body)
                 if (!response.isSuccessful) {
                     val detail = body.lineSequence().firstOrNull()?.take(200).orEmpty()
                     val suffix = if (detail.isEmpty()) "" else ": $detail"
@@ -56,6 +62,7 @@ class WebSearchClient(
                 formatResults(query, results)
             }
         } catch (e: Exception) {
+            Log.e(TAG, "Brave call failed: ${e.message}", e)
             ToolResult(false, "web_search 실패: ${e.message ?: e.javaClass.simpleName}")
         }
     }
@@ -107,8 +114,31 @@ class WebSearchClient(
     )
 
     companion object {
+        private const val TAG = "MyStar"
         private const val MAX_RESULTS = 5
+        private const val LOG_CHUNK = 3500
 
         val shared = WebSearchClient()
+
+        /** Logcat 한도(~4KB)를 넘지 않도록 본문을 나눠 출력. API 키는 절대 포함하지 말 것. */
+        private fun logChunked(tag: String, label: String, text: String) {
+            if (text.isEmpty()) {
+                Log.i(tag, "$label: <empty>")
+                return
+            }
+            if (text.length <= LOG_CHUNK) {
+                Log.i(tag, "$label:\n$text")
+                return
+            }
+            var offset = 0
+            var part = 1
+            val total = (text.length + LOG_CHUNK - 1) / LOG_CHUNK
+            while (offset < text.length) {
+                val end = minOf(offset + LOG_CHUNK, text.length)
+                Log.i(tag, "$label ($part/$total):\n${text.substring(offset, end)}")
+                offset = end
+                part++
+            }
+        }
     }
 }
