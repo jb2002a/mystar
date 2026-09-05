@@ -96,7 +96,7 @@ class AgentAccessibilityService : AccessibilityService() {
 
     /**
      * 행동 직후 UI 안정화를 기다린다.
-     * 유의미 노드가 있고 라벨+종류 지문이 poll 간격으로 연속 일치하면 QUIET.
+     * 유의미 노드가 있고 ProgressBar가 없으며, 라벨+종류 지문이 poll 간격으로 연속 일치하면 QUIET.
      * 어떤 경우든 hardTimeoutMs 에서 HARD_TIMEOUT.
      */
     suspend fun waitForUiSettle(
@@ -122,8 +122,13 @@ class AgentAccessibilityService : AccessibilityService() {
 
             val snapshot = captureSettleSnapshot()
             val meaningfulCount = snapshot?.meaningfulCount ?: 0
-            if (meaningfulCount == 0) {
-                logSettle("settle meaningful=false count=0")
+            val hasProgress = snapshot?.hasProgress == true
+            if (meaningfulCount == 0 || hasProgress) {
+                val reason = when {
+                    meaningfulCount == 0 -> "count=0"
+                    else -> "progress=true count=$meaningfulCount"
+                }
+                logSettle("settle meaningful=false $reason")
                 prevFingerprint = null
                 streak = 0
             } else {
@@ -156,6 +161,7 @@ class AgentAccessibilityService : AccessibilityService() {
     private data class SettleSnapshot(
         val fingerprint: String,
         val meaningfulCount: Int,
+        val hasProgress: Boolean,
     )
 
     /**
@@ -166,28 +172,35 @@ class AgentAccessibilityService : AccessibilityService() {
         val root = rootInActiveWindow ?: return null
         val sb = StringBuilder()
         var meaningfulCount = 0
+        var hasProgress = false
         try {
-            buildSettleFingerprint(root, sb) { meaningfulCount++ }
+            buildSettleFingerprint(
+                root,
+                sb,
+                onMeaningful = { meaningfulCount++ },
+                onProgress = { hasProgress = true },
+            )
         } finally {
             root.recycle()
         }
-        return SettleSnapshot(sb.toString(), meaningfulCount)
+        return SettleSnapshot(sb.toString(), meaningfulCount, hasProgress)
     }
 
     private fun buildSettleFingerprint(
         node: AccessibilityNodeInfo,
         sb: StringBuilder,
         onMeaningful: () -> Unit,
+        onProgress: () -> Unit,
     ) {
         if (!node.isVisibleToUser) {
-            traverseSettleChildren(node, sb, onMeaningful)
+            traverseSettleChildren(node, sb, onMeaningful, onProgress)
             return
         }
 
         val bounds = Rect()
         node.getBoundsInScreen(bounds)
         if (bounds.isEmpty || isFullyOffScreen(bounds)) {
-            traverseSettleChildren(node, sb, onMeaningful)
+            traverseSettleChildren(node, sb, onMeaningful, onProgress)
             return
         }
 
@@ -212,25 +225,29 @@ class AgentAccessibilityService : AccessibilityService() {
             }
             if (node.isClickable) line.append(" tap")
             if (node.isEditable) line.append(" edit")
-            if (isProgress) line.append(" progress")
+            if (isProgress) {
+                line.append(" progress")
+                onProgress()
+            }
             if (node.isScrollable) line.append(" scroll")
             if (node.isCheckable) line.append(if (node.isChecked) " on" else " off")
             sb.append(line).append('\n')
             onMeaningful()
         }
 
-        traverseSettleChildren(node, sb, onMeaningful)
+        traverseSettleChildren(node, sb, onMeaningful, onProgress)
     }
 
     private fun traverseSettleChildren(
         node: AccessibilityNodeInfo,
         sb: StringBuilder,
         onMeaningful: () -> Unit,
+        onProgress: () -> Unit,
     ) {
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
             try {
-                buildSettleFingerprint(child, sb, onMeaningful)
+                buildSettleFingerprint(child, sb, onMeaningful, onProgress)
             } finally {
                 child.recycle()
             }
