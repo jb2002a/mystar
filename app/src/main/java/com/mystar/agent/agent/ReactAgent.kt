@@ -357,7 +357,7 @@ class ReactAgent(
         const val DEFAULT_FINISH_SUMMARY = "작업을 마쳤습니다."
         const val ASK_USER_TIMEOUT_MS = 60_000L
 
-        private val NON_SCREEN_TOOLS = setOf("web_search", "ask_user")
+        private val NON_SCREEN_TOOLS = setOf("web_search")
 
         val shared = ReactAgent()
     }

@@ -474,7 +474,7 @@ ask_user 규칙:
 - 정보가 완전한 카톡 목표도 전송 버튼 직전 confirm은 유지한다.
 - ask_user는 finish가 아니다. 승인 후 실제 탭은 tap_node가 한다.
 - confirm에서 거절(answer=rejected)이면 그 버튼을 tap_node하지 말고 finish(summary)로 안전하게 종료한다.
-- ask_user tool result에는 사람 답만 있다. 화면은 바꾸지 않으므로 직전 <current_screen>을 그대로 쓴다. confirm 승인 후 tap_node는 그 트리의 node id만 쓴다.
+- ask_user tool result에는 사람 답만 있다. 오버레이가 내려간 뒤 안정화된 새 <current_screen>이 주입된다. confirm 승인 후 tap_node는 그 최신 트리의 node id만 쓴다. 이전 라운드 id를 재사용하지 않는다.
 - question은 사용자에게 읽을 1~2문장 한국어다. 트리 원문을 복붙하지 않는다.
 - ask_user가 타임아웃·실패하면 finish(summary)로 사용자에게 알린다.
 
