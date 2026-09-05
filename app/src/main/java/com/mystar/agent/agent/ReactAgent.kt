@@ -151,14 +151,19 @@ class ReactAgent(
 
             suspend fun refreshLatestScreen() {
                 onEvent(
-                    "ReAct: 안정화 대기 (quiet=${AgentAccessibilityService.QUIET_WINDOW_MS}ms" +
-                        " / hard=${AgentAccessibilityService.HARD_TIMEOUT_MS}ms)",
+                    "ReAct: 안정화 대기 (poll=${AgentAccessibilityService.STABILIZE_POLL_MS}ms" +
+                        " match=${AgentAccessibilityService.STABILIZE_MATCH_COUNT}" +
+                        " hard=${AgentAccessibilityService.HARD_TIMEOUT_MS}ms)",
                 )
                 val outcome = service.waitForUiSettle(
                     aborted = { stopRequested.get() },
                 )
                 if (cancelled()) return
-                val settleLabel = if (outcome == StabilizeOutcome.QUIET) "quiet" else "hard timeout"
+                val settleLabel = when (outcome) {
+                    StabilizeOutcome.QUIET -> "matched"
+                    StabilizeOutcome.HARD_TIMEOUT -> "hard timeout"
+                    StabilizeOutcome.ABORTED -> "aborted"
+                }
                 onEvent("ReAct: 안정화 종료 ($settleLabel)")
 
                 val tree = withContext(Dispatchers.Default) {

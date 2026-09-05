@@ -161,6 +161,8 @@ class CloudLlmClient(
                     put("model", model)
                     put("messages", LangSmithClient.sanitizeMessages(messages))
                     put("message_count", messages.size)
+                    put("tools", toolsToJson(tools))
+                    put("tool_choice", "required")
                 },
                 parentRunId = parentRunId,
                 extra = buildJsonObject {

@@ -27,7 +27,6 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicLong
 import com.mystar.agent.agent.ReactAgent
 import com.mystar.agent.agent.AskUserAnswer
 import com.mystar.agent.agent.AskUserPrompt
@@ -51,7 +50,7 @@ enum class StabilizeOutcome {
 /**
  * M1: 접근성 트리 관찰(getScreenTree) + 덤프 오버레이.
  * M2: tapNode / inputText 행동 API.
- * M4: 이벤트 quiet window 안정화 + 오버레이 강제 종료.
+ * M4: 지문 기반 안정화 + 오버레이 강제 종료.
  * M7: performBack. M8: scrollNode + scrollable 노드 참조 맵.
  */
 class AgentAccessibilityService : AccessibilityService() {
@@ -64,9 +63,6 @@ class AgentAccessibilityService : AccessibilityService() {
     /** 마지막 getScreenTree()의 박스 시각화 스냅샷. */
     private val uiBoxSnapshot = mutableListOf<UiBox>()
     private val nodeCounter = AtomicInteger(0)
-
-    /** WINDOW_STATE/CONTENT_CHANGED 마지막 수신 시각 (elapsedRealtime). */
-    private val lastWindowEventAt = AtomicLong(0L)
 
     private var overlayDumpButton: Button? = null
     private var overlayLlmButton: Button? = null
@@ -95,44 +91,149 @@ class AgentAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event == null) return
-        when (event.eventType) {
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
-            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
-            -> lastWindowEventAt.set(SystemClock.elapsedRealtime())
-        }
+        // 안정화는 지문 폴링으로 판정한다.
     }
 
     /**
      * 행동 직후 UI 안정화를 기다린다.
-     * WINDOW_STATE/CONTENT_CHANGED 이벤트가 quietMs 동안 고요하면 QUIET.
+     * 유의미 노드가 있고 라벨+종류 지문이 poll 간격으로 연속 일치하면 QUIET.
      * 어떤 경우든 hardTimeoutMs 에서 HARD_TIMEOUT.
      */
     suspend fun waitForUiSettle(
-        quietMs: Long = QUIET_WINDOW_MS,
         hardTimeoutMs: Long = HARD_TIMEOUT_MS,
         aborted: () -> Boolean = { false },
     ): StabilizeOutcome {
         val start = SystemClock.elapsedRealtime()
-        Log.i(TAG, "settle wait quiet=${quietMs}ms hard=${hardTimeoutMs}ms")
+        logSettle(
+            "settle wait poll=${STABILIZE_POLL_MS}ms match=$STABILIZE_MATCH_COUNT hard=${hardTimeoutMs}ms",
+        )
+        var prevFingerprint: String? = null
+        var streak = 0
         while (true) {
             if (aborted()) {
-                Log.i(TAG, "settle aborted elapsed=${SystemClock.elapsedRealtime() - start}ms")
+                logSettle("settle aborted elapsed=${SystemClock.elapsedRealtime() - start}ms")
                 return StabilizeOutcome.ABORTED
             }
-            val now = SystemClock.elapsedRealtime()
-            val elapsed = now - start
+            val elapsed = SystemClock.elapsedRealtime() - start
             if (elapsed >= hardTimeoutMs) {
-                Log.i(TAG, "settle hardTimeout elapsed=${elapsed}ms")
+                logSettle("settle hardTimeout elapsed=${elapsed}ms")
                 return StabilizeOutcome.HARD_TIMEOUT
             }
-            val lastEvent = lastWindowEventAt.get()
-            val effectiveLast = if (lastEvent > start) lastEvent else start
-            if (now - effectiveLast >= quietMs) {
-                Log.i(TAG, "settle quiet elapsed=${elapsed}ms")
-                return StabilizeOutcome.QUIET
+
+            val snapshot = captureSettleSnapshot()
+            val meaningfulCount = snapshot?.meaningfulCount ?: 0
+            if (meaningfulCount == 0) {
+                logSettle("settle meaningful=false count=0")
+                prevFingerprint = null
+                streak = 0
+            } else {
+                val fingerprint = snapshot!!.fingerprint
+                logSettle("settle meaningful=true count=$meaningfulCount")
+                if (fingerprint == prevFingerprint) {
+                    streak++
+                    logSettle("settle check $streak/$STABILIZE_MATCH_COUNT same")
+                } else {
+                    streak = 1
+                    logSettle("settle check 1/$STABILIZE_MATCH_COUNT reset")
+                }
+                prevFingerprint = fingerprint
+                if (streak >= STABILIZE_MATCH_COUNT) {
+                    logSettle("settle matched elapsed=${elapsed}ms count=$meaningfulCount")
+                    return StabilizeOutcome.QUIET
+                }
             }
+
             delay(STABILIZE_POLL_MS)
+        }
+    }
+
+    /** 안정화 폴링 로그 — AgentA11y + MyStar(logcat tag:mystar) 양쪽에 남긴다. */
+    private fun logSettle(message: String) {
+        Log.i(TAG, message)
+        Log.i(SETTLE_UI_TAG, message)
+    }
+
+    private data class SettleSnapshot(
+        val fingerprint: String,
+        val meaningfulCount: Int,
+    )
+
+    /**
+     * 안정화용 라벨+종류 지문. nodeCoords 등 getScreenTree 상태는 건드리지 않는다.
+     * root가 없으면 null.
+     */
+    private fun captureSettleSnapshot(): SettleSnapshot? {
+        val root = rootInActiveWindow ?: return null
+        val sb = StringBuilder()
+        var meaningfulCount = 0
+        try {
+            buildSettleFingerprint(root, sb) { meaningfulCount++ }
+        } finally {
+            root.recycle()
+        }
+        return SettleSnapshot(sb.toString(), meaningfulCount)
+    }
+
+    private fun buildSettleFingerprint(
+        node: AccessibilityNodeInfo,
+        sb: StringBuilder,
+        onMeaningful: () -> Unit,
+    ) {
+        if (!node.isVisibleToUser) {
+            traverseSettleChildren(node, sb, onMeaningful)
+            return
+        }
+
+        val bounds = Rect()
+        node.getBoundsInScreen(bounds)
+        if (bounds.isEmpty || isFullyOffScreen(bounds)) {
+            traverseSettleChildren(node, sb, onMeaningful)
+            return
+        }
+
+        val text = node.text?.toString()?.trim().orEmpty()
+        val desc = node.contentDescription?.toString()?.trim().orEmpty()
+        val hasText = text.isNotEmpty()
+        val hasDesc = desc.isNotEmpty()
+        val isInteractive = node.isClickable || node.isScrollable || node.isEditable ||
+            node.isCheckable || node.isLongClickable
+        val isProgress = isProgressNode(node)
+        val isMeaningful = hasText || hasDesc || isInteractive || isProgress
+
+        if (isMeaningful) {
+            val line = StringBuilder()
+            val label = when {
+                hasText -> sanitizeLabel(text)
+                hasDesc -> sanitizeLabel(desc)
+                else -> ""
+            }
+            if (label.isNotEmpty()) {
+                line.append('"').append(label).append('"')
+            }
+            if (node.isClickable) line.append(" tap")
+            if (node.isEditable) line.append(" edit")
+            if (isProgress) line.append(" progress")
+            if (node.isScrollable) line.append(" scroll")
+            if (node.isCheckable) line.append(if (node.isChecked) " on" else " off")
+            sb.append(line).append('\n')
+            onMeaningful()
+        }
+
+        traverseSettleChildren(node, sb, onMeaningful)
+    }
+
+    private fun traverseSettleChildren(
+        node: AccessibilityNodeInfo,
+        sb: StringBuilder,
+        onMeaningful: () -> Unit,
+    ) {
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            try {
+                buildSettleFingerprint(child, sb, onMeaningful)
+            } finally {
+                child.recycle()
+            }
         }
     }
 
@@ -706,6 +807,7 @@ class AgentAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val TAG = "AgentA11y"
+        private const val SETTLE_UI_TAG = "MyStar"
         private const val MAX_LABEL_LEN = 40
         private const val GESTURE_TIMEOUT_MS = 2000L
         private const val FOCUS_WAIT_MS = 300L
@@ -714,9 +816,9 @@ class AgentAccessibilityService : AccessibilityService() {
         private const val RETRY_SLEEP_MS = 200L
         private const val SCROLL_SWIPE_DELTA_PX = 150
         private const val SCROLL_SWIPE_DURATION_MS = 250L
-        const val QUIET_WINDOW_MS = 400L
-        const val HARD_TIMEOUT_MS = 20_000L
-        private const val STABILIZE_POLL_MS = 50L
+        const val STABILIZE_POLL_MS = 200L
+        const val STABILIZE_MATCH_COUNT = 4
+        const val HARD_TIMEOUT_MS = 10_000L
 
         @Volatile
         var instance: AgentAccessibilityService? = null
