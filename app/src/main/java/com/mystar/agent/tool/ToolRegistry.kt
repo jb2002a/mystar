@@ -145,11 +145,12 @@ object ToolRegistry {
             ?: return ToolResult(false, "node_id 인자 필요")
         val service = AgentAccessibilityService.instance
             ?: return ToolResult(false, "접근성 서비스 미연결")
+        val named = service.describeNode(nodeId)
         val ok = service.tapNode(nodeId)
         return if (ok) {
-            ToolResult(true, "tap_node($nodeId) OK")
+            ToolResult(true, "tap_node($named) OK")
         } else {
-            ToolResult(false, "tap_node($nodeId) 실패 (존재하지 않는 id 또는 제스처 실패)")
+            ToolResult(false, "tap_node($named) 실패 (존재하지 않는 id 또는 제스처 실패)")
         }
     }
 

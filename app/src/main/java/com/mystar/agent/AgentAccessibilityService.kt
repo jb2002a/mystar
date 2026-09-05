@@ -99,6 +99,8 @@ private const val LOADING_MAX_NODES = 2
 class AgentAccessibilityService : AccessibilityService() {
 
     private val nodeCoords = ConcurrentHashMap<String, Point>()
+    /** 마지막 getScreenTree()의 node id → 트리에 실린 라벨(text/contentDescription). */
+    private val nodeLabels = ConcurrentHashMap<String, String>()
     /** M8: 마지막 getScreenTree()의 scrollable node id → 스크롤 액션용 노드 복사본. */
     private val nodeScrollRefs = ConcurrentHashMap<String, AccessibilityNodeInfo>()
     /** 마지막 getScreenTree()의 박스 시각화 스냅샷. */
@@ -332,6 +334,13 @@ class AgentAccessibilityService : AccessibilityService() {
     /** M2용: 마지막 getScreenTree() 스냅샷의 node id → 중심 좌표. */
     fun getNodeCoordinates(nodeId: String): Point? = nodeCoords[nodeId]
 
+    /** 로그용: `n12 "배터리"`. 라벨이 없으면 id만. */
+    fun describeNode(nodeId: String): String {
+        val id = nodeId.replace("[", "").replace("]", "").trim()
+        val label = nodeLabels[id]
+        return if (label.isNullOrEmpty()) id else "$id \"$label\""
+    }
+
     /**
      * 마지막 getScreenTree() 스냅샷의 node id로 탭한다.
      * 좌표는 외부에 노출하지 않고 nodeCoords에서 조회한다.
@@ -343,19 +352,20 @@ class AgentAccessibilityService : AccessibilityService() {
             Log.w(TAG, "tapNode: empty node id")
             return false
         }
+        val named = describeNode(id)
         val point = getNodeCoordinates(id)
         if (point == null) {
-            ServiceStatus.appendLog("Node $id 없음. 먼저 덤프하세요")
-            Log.w(TAG, "tapNode: node $id not found")
+            ServiceStatus.appendLog("Node $named 없음. 먼저 덤프하세요")
+            Log.w(TAG, "tapNode: node $named not found")
             return false
         }
         val ok = performTap(point.x, point.y)
         if (ok) {
-            ServiceStatus.appendLog("tapNode: $id at (${point.x},${point.y}) OK")
-            Log.i(TAG, "tapNode: $id at (${point.x},${point.y}) OK")
+            ServiceStatus.appendLog("tapNode: $named at (${point.x},${point.y}) OK")
+            Log.i(TAG, "tapNode: $named at (${point.x},${point.y}) OK")
         } else {
-            ServiceStatus.appendLog("tapNode: $id at (${point.x},${point.y}) 실패")
-            Log.w(TAG, "tapNode: $id at (${point.x},${point.y}) failed")
+            ServiceStatus.appendLog("tapNode: $named at (${point.x},${point.y}) 실패")
+            Log.w(TAG, "tapNode: $named at (${point.x},${point.y}) failed")
         }
         return ok
     }
@@ -642,6 +652,7 @@ class AgentAccessibilityService : AccessibilityService() {
         val root = rootInActiveWindow ?: return null
         clearScrollRefs()
         nodeCoords.clear()
+        nodeLabels.clear()
         uiBoxSnapshot.clear()
         nodeCounter.set(0)
         val sb = StringBuilder()
@@ -715,6 +726,7 @@ class AgentAccessibilityService : AccessibilityService() {
                 else -> ""
             }
             if (label.isNotEmpty()) {
+                nodeLabels[nodeId] = label
                 line.append("\"").append(label).append("\"")
             }
 
