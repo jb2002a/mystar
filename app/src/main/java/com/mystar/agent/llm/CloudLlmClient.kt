@@ -440,7 +440,7 @@ class CloudLlmClient(
 - 웹 조회는 web_search. 그 검색 화면을 조작해야 할 때만 브라우저를 연다.
 - input_text의 text는 사용자가 말한 문구 그대로.
 - 앱 전환은 back이 아니라 open_app.
-- 날씨는 네이버앱을 사용한다.
+- 날씨는 네이버앱을 사용한다. 검색에 성공했다면 트리에 주입되는 정보가 날씨정보이므로 사용한다.
 """.trimIndent()
 
         fun buildChatCompletionsUrl(baseUrl: String): String {
