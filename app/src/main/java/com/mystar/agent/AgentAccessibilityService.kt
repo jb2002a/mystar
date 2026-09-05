@@ -372,7 +372,7 @@ class AgentAccessibilityService : AccessibilityService() {
 
     /**
      * node id로 입력 필드를 탭(포커스)한 뒤 ACTION_SET_TEXT로 텍스트를 넣는다.
-     * findFocus가 비-editable이면 탭 좌표 근처 editable을 다시 찾는다.
+     * 포커스가 editable이 아니면 실패로 끝낸다. 다른 입력 필드를 추측하지 않는다.
      */
     fun inputText(text: String, nodeId: String): Boolean {
         val id = nodeId.replace("[", "").replace("]", "").trim()
@@ -402,7 +402,7 @@ class AgentAccessibilityService : AccessibilityService() {
             return false
         }
 
-        val target = waitForTargetEditable(point.x, point.y)
+        val target = waitForFocusedEditable()
         if (target == null) {
             ServiceStatus.appendLog("inputText: $id 탭 후에도 입력 필드 없음")
             Log.w(TAG, "inputText: no editable field after tapping $id")
@@ -490,18 +490,17 @@ class AgentAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * findFocus(FOCUS_INPUT)가 editable이면 그걸 쓰고,
-     * 아니면 탭 좌표를 포함하는 editable/EditText를 트리에서 찾는다.
+     * findFocus(FOCUS_INPUT)가 editable이면 그걸 쓰고, 아니면 null.
+     * 탭 좌표 주변의 다른 입력 필드를 대신 고르지 않는다 —
+     * 근거 없이 고른 필드에 입력하면 실패가 아니라 조용한 오입력이 된다.
      */
-    private fun waitForTargetEditable(x: Int, y: Int): AccessibilityNodeInfo? {
+    private fun waitForFocusedEditable(): AccessibilityNodeInfo? {
         repeat(EDITABLE_RETRY_COUNT) { attempt ->
             val root = rootInActiveWindow
             if (root != null) {
                 try {
                     val focused = findFocusedEditText(root)
                     if (focused != null) return focused
-                    val near = findEditableNearPoint(root, x, y)
-                    if (near != null) return near
                 } finally {
                     root.recycle()
                 }
@@ -516,40 +515,6 @@ class AgentAccessibilityService : AccessibilityService() {
         if (focused.isEditable) return focused
         if (focused !== root) focused.recycle()
         return null
-    }
-
-    private fun findEditableNearPoint(node: AccessibilityNodeInfo, x: Int, y: Int): AccessibilityNodeInfo? {
-        val bounds = Rect()
-        node.getBoundsInScreen(bounds)
-        val className = node.className?.toString().orEmpty()
-        val looksEditable = node.isEditable || className.contains("EditText")
-        if (looksEditable && bounds.contains(x, y)) {
-            return AccessibilityNodeInfo.obtain(node)
-        }
-
-        var best: AccessibilityNodeInfo? = null
-        var bestDistance = Int.MAX_VALUE
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            val candidate = try {
-                findEditableNearPoint(child, x, y)
-            } finally {
-                child.recycle()
-            } ?: continue
-            val cb = Rect()
-            candidate.getBoundsInScreen(cb)
-            val dx = cb.centerX() - x
-            val dy = cb.centerY() - y
-            val distance = dx * dx + dy * dy
-            if (distance < bestDistance) {
-                best?.recycle()
-                best = candidate
-                bestDistance = distance
-            } else {
-                candidate.recycle()
-            }
-        }
-        return best
     }
 
     private fun trySetText(node: AccessibilityNodeInfo, text: String): Boolean {
