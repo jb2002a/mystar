@@ -149,15 +149,12 @@ class ReactAgent(
             // val initialScreenContext = llmClient.buildInitialScreenContextMessage(initialTree)
             var latestScreen: String? = null
 
-            suspend fun refreshLatestScreen(expectedPackage: String? = null) {
+            suspend fun refreshLatestScreen() {
                 onEvent(
                     "ReAct: 안정화 대기 (quiet=${AgentAccessibilityService.QUIET_WINDOW_MS}ms" +
-                        " / hard=${AgentAccessibilityService.HARD_TIMEOUT_MS}ms" +
-                        expectedPackage?.let { " / pkg=$it" }.orEmpty() +
-                        ")",
+                        " / hard=${AgentAccessibilityService.HARD_TIMEOUT_MS}ms)",
                 )
                 val outcome = service.waitForUiSettle(
-                    expectedPackage = expectedPackage,
                     aborted = { stopRequested.get() },
                 )
                 if (cancelled()) return
@@ -276,12 +273,7 @@ class ReactAgent(
                 onEvent("ReAct: 결과 $status — ${actionResult.message.lineSequence().first()}")
 
                 if (toolCall.name !in NON_SCREEN_TOOLS) {
-                    val expectedPackage = if (toolCall.name == "open_app") {
-                        toolCall.args["package"]?.jsonPrimitive?.contentOrNull?.trim()?.ifEmpty { null }
-                    } else {
-                        null
-                    }
-                    refreshLatestScreen(expectedPackage)
+                    refreshLatestScreen()
                 }
                 if (cancelled()) return false
             }

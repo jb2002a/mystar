@@ -48,48 +48,6 @@ enum class StabilizeOutcome {
     ABORTED,
 }
 
-private data class TreeReadyFingerprint(
-    val packageName: String?,
-    val nodeCount: Int,
-    val textCount: Int,
-    val tapCount: Int,
-    val editCount: Int,
-)
-
-private data class TreeReadySnapshot(
-    val packageName: String?,
-    val nodeCount: Int,
-    val textCount: Int,
-    val tapCount: Int,
-    val editCount: Int,
-    val hasProgress: Boolean,
-) {
-    fun isLoadingLike(): Boolean {
-        if (hasProgress) return true
-        if (textCount == 0 && tapCount == 0 && editCount == 0) return true
-        if (nodeCount <= LOADING_MAX_NODES && tapCount == 0) return true
-        return false
-    }
-
-    fun fingerprint(): TreeReadyFingerprint = TreeReadyFingerprint(
-        packageName = packageName,
-        nodeCount = nodeCount,
-        textCount = textCount,
-        tapCount = tapCount,
-        editCount = editCount,
-    )
-}
-
-private class ReadyCounts {
-    var nodeCount = 0
-    var textCount = 0
-    var tapCount = 0
-    var editCount = 0
-    var hasProgress = false
-}
-
-private const val LOADING_MAX_NODES = 2
-
 /**
  * M1: 접근성 트리 관찰(getScreenTree) + 덤프 오버레이.
  * M2: tapNode / inputText 행동 API.
@@ -147,26 +105,16 @@ class AgentAccessibilityService : AccessibilityService() {
 
     /**
      * 행동 직후 UI 안정화를 기다린다.
-     * 창 이벤트가 quietMs 동안 고요해도 로딩 껍데기면 확정하지 않고 다시 계측한다.
-     * [expectedPackage]가 있으면 포그라운드 패키지가 일치할 때까지 거절한다.
-     * 로딩 거절을 통과해도 트리 지문이 연속 [STABLE_NEEDED]회 같을 때만 QUIET.
+     * WINDOW_STATE/CONTENT_CHANGED 이벤트가 quietMs 동안 고요하면 QUIET.
      * 어떤 경우든 hardTimeoutMs 에서 HARD_TIMEOUT.
      */
     suspend fun waitForUiSettle(
         quietMs: Long = QUIET_WINDOW_MS,
         hardTimeoutMs: Long = HARD_TIMEOUT_MS,
-        expectedPackage: String? = null,
         aborted: () -> Boolean = { false },
     ): StabilizeOutcome {
         val start = SystemClock.elapsedRealtime()
-        var lastReadyCheckAt = 0L
-        var stableCount = 0
-        var lastFingerprint: TreeReadyFingerprint? = null
-        Log.i(
-            TAG,
-            "settle wait quiet=${quietMs}ms hard=${hardTimeoutMs}ms stable=$STABLE_NEEDED " +
-                "expectedPkg=${expectedPackage ?: "-"}",
-        )
+        Log.i(TAG, "settle wait quiet=${quietMs}ms hard=${hardTimeoutMs}ms")
         while (true) {
             if (aborted()) {
                 Log.i(TAG, "settle aborted elapsed=${SystemClock.elapsedRealtime() - start}ms")
@@ -175,117 +123,17 @@ class AgentAccessibilityService : AccessibilityService() {
             val now = SystemClock.elapsedRealtime()
             val elapsed = now - start
             if (elapsed >= hardTimeoutMs) {
-                val snap = probeTreeReady()
-                Log.i(TAG, "settle hardTimeout ${formatReadySnap(snap)} elapsed=${elapsed}ms")
+                Log.i(TAG, "settle hardTimeout elapsed=${elapsed}ms")
                 return StabilizeOutcome.HARD_TIMEOUT
             }
             val lastEvent = lastWindowEventAt.get()
             val effectiveLast = if (lastEvent > start) lastEvent else start
             if (now - effectiveLast >= quietMs) {
-                if (now - lastReadyCheckAt < quietMs) {
-                    delay(STABILIZE_POLL_MS)
-                    continue
-                }
-                lastReadyCheckAt = now
-                val snap = probeTreeReady()
-                val reject = readyRejectReason(snap, expectedPackage)
-                if (reject != null) {
-                    stableCount = 0
-                    lastFingerprint = null
-                    Log.i(TAG, "settle skip $reject ${formatReadySnap(snap)} elapsed=${elapsed}ms")
-                    delay(STABILIZE_POLL_MS)
-                    continue
-                }
-                val fingerprint = requireNotNull(snap).fingerprint()
-                if (lastFingerprint != fingerprint) {
-                    stableCount = 1
-                    lastFingerprint = fingerprint
-                    ServiceStatus.appendLog("안정화 검사 $stableCount/$STABLE_NEEDED")
-                    delay(STABILIZE_POLL_MS)
-                    continue
-                }
-                stableCount++
-                if (stableCount >= STABLE_NEEDED) {
-                    ServiceStatus.appendLog("안정화 검사 $stableCount/$STABLE_NEEDED")
-                    return StabilizeOutcome.QUIET
-                }
-                ServiceStatus.appendLog("안정화 검사 $stableCount/$STABLE_NEEDED")
-                delay(STABILIZE_POLL_MS)
-                continue
+                Log.i(TAG, "settle quiet elapsed=${elapsed}ms")
+                return StabilizeOutcome.QUIET
             }
             delay(STABILIZE_POLL_MS)
         }
-    }
-
-    private fun probeTreeReady(): TreeReadySnapshot? {
-        val root = rootInActiveWindow ?: return null
-        val counts = ReadyCounts()
-        try {
-            accumulateReadyCounts(root, counts)
-            return TreeReadySnapshot(
-                packageName = root.packageName?.toString(),
-                nodeCount = counts.nodeCount,
-                textCount = counts.textCount,
-                tapCount = counts.tapCount,
-                editCount = counts.editCount,
-                hasProgress = counts.hasProgress,
-            )
-        } finally {
-            root.recycle()
-        }
-    }
-
-    private fun accumulateReadyCounts(node: AccessibilityNodeInfo, counts: ReadyCounts) {
-        if (!node.isVisibleToUser) {
-            accumulateReadyChildren(node, counts)
-            return
-        }
-        val bounds = Rect()
-        node.getBoundsInScreen(bounds)
-        if (bounds.isEmpty || isFullyOffScreen(bounds)) {
-            accumulateReadyChildren(node, counts)
-            return
-        }
-        val text = node.text?.toString()?.trim().orEmpty()
-        val desc = node.contentDescription?.toString()?.trim().orEmpty()
-        val hasLabel = text.isNotEmpty() || desc.isNotEmpty()
-        val isInteractive = node.isClickable || node.isScrollable || node.isEditable ||
-            node.isCheckable || node.isLongClickable
-        val isProgress = isProgressNode(node)
-        if (hasLabel || isInteractive || isProgress) {
-            counts.nodeCount++
-            if (hasLabel) counts.textCount++
-            if (node.isClickable) counts.tapCount++
-            if (node.isEditable) counts.editCount++
-            if (isProgress) counts.hasProgress = true
-        }
-        accumulateReadyChildren(node, counts)
-    }
-
-    private fun accumulateReadyChildren(node: AccessibilityNodeInfo, counts: ReadyCounts) {
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            try {
-                accumulateReadyCounts(child, counts)
-            } finally {
-                child.recycle()
-            }
-        }
-    }
-
-    private fun readyRejectReason(snap: TreeReadySnapshot?, expectedPackage: String?): String? {
-        if (snap == null) return "rootNull"
-        if (expectedPackage != null && snap.packageName != expectedPackage) {
-            return "pkg want=$expectedPackage got=${snap.packageName ?: "-"}"
-        }
-        if (snap.isLoadingLike()) return "loadingLike"
-        return null
-    }
-
-    private fun formatReadySnap(snap: TreeReadySnapshot?): String {
-        if (snap == null) return "pkg=- nodes=0 text=0 tap=0 edit=0 progress=false"
-        return "pkg=${snap.packageName ?: "-"} nodes=${snap.nodeCount} text=${snap.textCount} " +
-            "tap=${snap.tapCount} edit=${snap.editCount} progress=${snap.hasProgress}"
     }
 
     override fun onInterrupt() {
@@ -869,7 +717,6 @@ class AgentAccessibilityService : AccessibilityService() {
         const val QUIET_WINDOW_MS = 400L
         const val HARD_TIMEOUT_MS = 20_000L
         private const val STABILIZE_POLL_MS = 50L
-        private const val STABLE_NEEDED = 3
 
         @Volatile
         var instance: AgentAccessibilityService? = null
