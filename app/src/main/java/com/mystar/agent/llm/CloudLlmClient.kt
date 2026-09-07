@@ -261,6 +261,7 @@ class CloudLlmClient(
             )
             put("tools", toolsToJson(tools))
             put("tool_choice", "required")
+            put("temperature", 0)
         }
     }
 
