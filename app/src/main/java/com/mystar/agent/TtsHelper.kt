@@ -10,7 +10,7 @@ import kotlin.coroutines.Continuation
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
 
-/** finish summary를 한국어 TTS로 낭독한다. Activity 수명에 맞춰 init/shutdown 한다. */
+/** finish summary를 한국어 TTS로 낭독한다. 수명은 AgentTts가 프로세스 단위로 관리한다. */
 class TtsHelper(context: Context) : TextToSpeech.OnInitListener {
     private val appContext = context.applicationContext
     private var tts: TextToSpeech? = null
@@ -157,5 +157,28 @@ class TtsHelper(context: Context) : TextToSpeech.OnInitListener {
     companion object {
         private const val TAG = "AgentTts"
         private const val FINISH_UTTERANCE_ID = "finish_summary"
+    }
+}
+
+/**
+ * 프로세스 단위 TTS 홀더.
+ * 평가 큐가 최근 앱을 모두 닫으면 MainActivity가 사라지므로,
+ * finish/HITL 낭독은 Activity 수명과 분리해 둔다.
+ */
+object AgentTts {
+    @Volatile
+    private var helper: TtsHelper? = null
+
+    val instance: TtsHelper?
+        get() = helper
+
+    fun ensure(context: Context): TtsHelper {
+        helper?.let { return it }
+        return synchronized(this) {
+            helper ?: TtsHelper(context.applicationContext).also {
+                it.init()
+                helper = it
+            }
+        }
     }
 }

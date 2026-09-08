@@ -404,6 +404,45 @@ class AgentAccessibilityService : AccessibilityService() {
         return ok
     }
 
+    /** 평가 큐: 홈 화면으로 이동. */
+    fun performHome(): Boolean {
+        val ok = performGlobalAction(GLOBAL_ACTION_HOME)
+        if (ok) {
+            ServiceStatus.appendLog("home: OK")
+        } else {
+            ServiceStatus.appendLog("home: 실패")
+            Log.w(TAG, "performHome: failed")
+        }
+        return ok
+    }
+
+    /** 평가 큐: 최근 앱 화면 열기. */
+    fun performRecents(): Boolean {
+        val ok = performGlobalAction(GLOBAL_ACTION_RECENTS)
+        if (ok) {
+            ServiceStatus.appendLog("recents: OK")
+        } else {
+            ServiceStatus.appendLog("recents: 실패")
+            Log.w(TAG, "performRecents: failed")
+        }
+        return ok
+    }
+
+    /**
+     * 마지막 getScreenTree() 스냅샷에서 후보 라벨을 포함하는 node id를 찾는다.
+     * 공백·대소문자는 무시한다("모두 닫기, 버튼" 같은 표기 대응). 없으면 null.
+     */
+    fun findNodeIdByLabel(candidates: List<String>): String? {
+        val wanted = candidates.map { normalizeLabel(it) }
+        return nodeLabels.entries.firstOrNull { entry ->
+            val label = normalizeLabel(entry.value)
+            wanted.any { it.isNotEmpty() && label.contains(it) }
+        }?.key
+    }
+
+    private fun normalizeLabel(raw: String): String =
+        raw.filterNot { it.isWhitespace() }.lowercase()
+
     /**
      * M8: scroll 마크가 있는 node id로 목록을 한 칸 스크롤한다.
      * @param direction "down" = 아래로 더 보기, "up" = 위로 되돌리기

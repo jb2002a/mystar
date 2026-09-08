@@ -28,15 +28,18 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -49,6 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mystar.agent.agent.ReactAgent
@@ -62,16 +66,17 @@ private const val SPEECH_MIN_LISTEN_MS = 15_000
 private const val SPEECH_SILENCE_MS = 4_000
 
 class MainActivity : ComponentActivity() {
+    /** 수명은 AgentTts가 갖는다 — 평가 큐가 이 Activity를 닫아도 낭독은 이어진다. */
     private lateinit var ttsHelper: TtsHelper
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        ttsHelper = TtsHelper(this)
-        ttsHelper.init()
+        ttsHelper = AgentTts.ensure(this)
         ServiceStatus.init(this)
         ServiceStatus.refreshFromInstance()
         ServiceStatus.appendLog("MainActivity.onCreate")
+        EvalQueueRunner.ensureLoaded(this)
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -89,11 +94,6 @@ class MainActivity : ComponentActivity() {
         ServiceStatus.refreshFromInstance()
         ServiceStatus.refreshHitlMicPermission(this)
     }
-
-    override fun onDestroy() {
-        ttsHelper.shutdown()
-        super.onDestroy()
-    }
 }
 
 @Composable
@@ -106,9 +106,15 @@ private fun AgentHomeScreen(
     val overlayEnabled by ServiceStatus.overlayEnabled.collectAsStateWithLifecycle()
     val hitlMicGranted by ServiceStatus.hitlMicGranted.collectAsStateWithLifecycle()
     val pendingGoal by ServiceStatus.pendingGoal.collectAsStateWithLifecycle()
+    val queueState by EvalQueueRunner.state.collectAsStateWithLifecycle()
+    val queueTasks by EvalQueueRunner.tasksText.collectAsStateWithLifecycle()
+    val queueRepeat by EvalQueueRunner.repeatText.collectAsStateWithLifecycle()
+    val queueCooldown by EvalQueueRunner.cooldownText.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val reactAgent = remember { ReactAgent.shared }
     var reactRunning by remember { mutableStateOf(false) }
+    var queueError by remember { mutableStateOf("") }
+    val busy = reactRunning || queueState.running
 
     val hitlPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -176,7 +182,7 @@ private fun AgentHomeScreen(
             ServiceStatus.appendLog("음성: 접근성 서비스 미연결 — 실행 생략")
             return@rememberLauncherForActivityResult
         }
-        if (reactRunning) {
+        if (busy) {
             ServiceStatus.appendLog("음성: 이미 실행 중 — 실행 생략")
             return@rememberLauncherForActivityResult
         }
@@ -241,7 +247,7 @@ private fun AgentHomeScreen(
         ) {
             Button(
                 onClick = { startSpeechRecognition() },
-                enabled = connected && !reactRunning,
+                enabled = connected && !busy,
                 shape = CircleShape,
                 modifier = Modifier.size(96.dp),
             ) {
@@ -249,7 +255,7 @@ private fun AgentHomeScreen(
             }
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = if (reactRunning) {
+                text = if (busy) {
                     "실행 중…"
                 } else if (!connected) {
                     "마이크 (접근성 연결 필요)"
@@ -363,14 +369,112 @@ private fun AgentHomeScreen(
                     onValueChange = { ServiceStatus.setPendingGoal(it) },
                     label = { Text("목표") },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !reactRunning,
+                    enabled = !busy,
                 )
                 Button(
                     onClick = { runGoal(pendingGoal) },
-                    enabled = connected && !reactRunning && pendingGoal.isNotBlank(),
+                    enabled = connected && !busy && pendingGoal.isNotBlank(),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(if (reactRunning) "실행 중…" else "ReAct 루프 실행")
+                    Text(if (busy) "실행 중…" else "ReAct 루프 실행")
+                }
+            }
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+            ),
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = "평가 큐 (자동 연속 실행)",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                if (queueState.running) {
+                    Text(
+                        text = "진행 ${queueState.done}/${queueState.total} · " +
+                            "태스크 ${queueState.taskNo} (${queueState.attempt}/${queueState.repeat}회)" +
+                            " — ${queueState.phase}",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        text = queueState.goal,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedButton(
+                        onClick = { EvalQueueRunner.stop() },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("큐 중단")
+                    }
+                } else {
+                    Text(
+                        text = "원본: docs/evaluation/set_D0.md. 태스크마다 연속으로 반복하고," +
+                            " 런 사이에 최근 앱을 닫고 홈으로 돌아갑니다." +
+                            " 아래 편집은 이번 실행에만 적용됩니다.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedTextField(
+                        value = queueTasks,
+                        onValueChange = { EvalQueueRunner.setTasksText(it) },
+                        label = { Text("태스크 목록") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 4,
+                        maxLines = 10,
+                        enabled = !busy,
+                    )
+                    TextButton(
+                        onClick = { EvalQueueRunner.loadFromAsset(context) },
+                        enabled = !busy,
+                        modifier = Modifier.align(Alignment.End),
+                    ) {
+                        Text("원본 불러오기")
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        OutlinedTextField(
+                            value = queueRepeat,
+                            onValueChange = { EvalQueueRunner.setRepeatText(it) },
+                            label = { Text("반복") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            enabled = !busy,
+                        )
+                        OutlinedTextField(
+                            value = queueCooldown,
+                            onValueChange = { EvalQueueRunner.setCooldownText(it) },
+                            label = { Text("쿨다운(초)") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            enabled = !busy,
+                        )
+                    }
+                    if (queueError.isNotEmpty()) {
+                        Text(
+                            text = queueError,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    Button(
+                        onClick = { queueError = EvalQueueRunner.start().orEmpty() },
+                        enabled = connected && !busy,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("큐 시작 (${EvalQueueRunner.plannedTotal()}런)")
+                    }
                 }
             }
         }
