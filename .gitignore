@@ -43,3 +43,7 @@ Thumbs.db
 
 # Log / crash
 *.log
+
+# Evaluation: device-pulled artifacts
+docs/evaluation/result/device/files/
+docs/evaluation/result/device/eval.tar
