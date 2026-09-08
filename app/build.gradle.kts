@@ -34,8 +34,8 @@ android {
         applicationId = "com.mystar.agent"
         minSdk = 24
         targetSdk = 35
-        versionCode = 26
-        versionName = "0.35"
+        versionCode = 27
+        versionName = "0.36"
 
         buildConfigField("String", "LLM_API_KEY", "\"${escapeBuildConfig(llmApiKey)}\"")
         buildConfigField("String", "LLM_BASE_URL", "\"${escapeBuildConfig(llmBaseUrl)}\"")
@@ -73,6 +73,19 @@ android {
         compose = true
         buildConfig = true
     }
+
+    // 골든셋 원본은 docs/evaluation/set_D0.md 하나. copyEvalSet이 여기로 복사한다.
+    sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("generated/evalAssets"))
+}
+
+/** 골든셋 원본 문서를 assets/eval/로 복사한다. 셋은 문서에서만 고친다. */
+val copyEvalSet by tasks.registering(Copy::class) {
+    from(rootProject.file("docs/evaluation/set_D0.md"))
+    into(layout.buildDirectory.dir("generated/evalAssets/eval"))
+}
+
+tasks.named("preBuild") {
+    dependsOn(copyEvalSet)
 }
 
 dependencies {

@@ -416,7 +416,7 @@ private fun AgentHomeScreen(
                     }
                 } else {
                     Text(
-                        text = "원본: assets/${EvalSet.ASSET_PATH}. 태스크마다 연속으로 반복하고," +
+                        text = "원본: docs/evaluation/set_D0.md. 태스크마다 연속으로 반복하고," +
                             " 런 사이에 최근 앱을 닫고 홈으로 돌아갑니다." +
                             " 아래 편집은 이번 실행에만 적용됩니다.",
                         style = MaterialTheme.typography.bodySmall,
