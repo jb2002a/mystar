@@ -1,7 +1,11 @@
 package com.mystar.agent.agent
 
+import android.os.SystemClock
 import com.mystar.agent.AgentAccessibilityService
 import com.mystar.agent.BuildConfig
+import com.mystar.agent.EvalRunRecord
+import com.mystar.agent.EvalRunStore
+import com.mystar.agent.EvalToolEntry
 import com.mystar.agent.StabilizeOutcome
 import com.mystar.agent.llm.CloudLlmClient
 import com.mystar.agent.llm.LlmResult
@@ -11,6 +15,7 @@ import com.mystar.agent.tool.ToolRegistry
 import com.mystar.agent.tool.ToolResult
 import com.mystar.agent.tracing.LangSmithClient
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -112,6 +117,46 @@ class ReactAgent(
         var endError: String? = null
         var success = false
         var endReason = "unknown"
+        val runStartedAt = SystemClock.elapsedRealtime()
+        var shouldRecordEval = false
+        var tokensIn = 0
+        var tokensOut = 0
+        var finishSummary: String? = null
+        var hitlCount = 0
+        val toolRecords = mutableListOf<EvalToolEntry>()
+
+        fun accumulateTokens(llmResult: LlmResult) {
+            when (llmResult) {
+                is LlmResult.Success -> {
+                    llmResult.inputTokens?.let { tokensIn += it }
+                    llmResult.outputTokens?.let { tokensOut += it }
+                }
+                is LlmResult.Failure -> {
+                    llmResult.inputTokens?.let { tokensIn += it }
+                    llmResult.outputTokens?.let { tokensOut += it }
+                }
+            }
+        }
+
+        fun recordTool(round: Int, toolCall: ToolCall, actionResult: ToolResult) {
+            val reason = toolCall.args["reason"]?.jsonPrimitive?.contentOrNull?.trim()
+                ?.takeIf { it.isNotEmpty() }
+            toolRecords.add(
+                EvalToolEntry(
+                    round = round,
+                    name = toolCall.name,
+                    reason = reason,
+                    args = LangSmithClient.sanitizeToolArgs(toolCall.name, toolCall.args),
+                    ok = actionResult.success,
+                    result = EvalRunStore.compactResult(
+                        LangSmithClient.sanitizeToolResultMessage(actionResult.message),
+                    ),
+                ),
+            )
+            if (toolCall.name == "ask_user" && actionResult.success) {
+                hitlCount++
+            }
+        }
 
         fun cancelled(): Boolean {
             if (!stopRequested.get()) return false
@@ -122,6 +167,8 @@ class ReactAgent(
         }
 
         try {
+            shouldRecordEval = true
+
             // 초기 트리 주입 임시 비활성. 첫 화면은 행동 후 tool_result로만 본다.
             // val initialTree = withContext(Dispatchers.Default) {
             //     service.getScreenTree()
@@ -199,6 +246,7 @@ class ReactAgent(
 
                 val requestMessages = buildRequestMessages(round)
                 val llmResult = llmClient.chooseNextTool(requestMessages, parentRunId = rootRunId)
+                accumulateTokens(llmResult)
                 val (toolCall, assistantMessage) = when (llmResult) {
                     is LlmResult.Success -> llmResult.toolCall to llmResult.assistantMessage
                     is LlmResult.Failure -> {
@@ -253,9 +301,11 @@ class ReactAgent(
                 )
 
                 if (toolCall.name == "finish") {
+                    recordTool(round, toolCall, actionResult)
                     onEvent("ReAct: 완료 — ${actionResult.message}")
                     val summary = toolCall.args["summary"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
                     val spokenSummary = summary.ifEmpty { DEFAULT_FINISH_SUMMARY }
+                    finishSummary = spokenSummary
                     onFinishSummary(spokenSummary)
                     success = actionResult.success
                     endReason = if (success) "finish" else "finish_failed"
@@ -265,11 +315,15 @@ class ReactAgent(
                     return actionResult.success
                 }
 
+                recordTool(round, toolCall, actionResult)
+
                 if (cancelled()) return false
 
                 if (toolCall.name == "ask_user" &&
                     actionResult.message.contains("사용자가 작업을 중단")
                 ) {
+                    endReason = "ask_user_abort"
+                    endError = actionResult.message.lineSequence().first()
                     return false
                 }
 
@@ -297,6 +351,28 @@ class ReactAgent(
                 },
                 error = endError,
             )
+            if (shouldRecordEval) {
+                val elapsedS = ((SystemClock.elapsedRealtime() - runStartedAt) / 100.0).roundToInt() / 10.0
+                val record = EvalRunRecord(
+                    task = goal,
+                    elapsedS = elapsedS,
+                    rounds = completedRounds,
+                    tokensIn = tokensIn,
+                    tokensOut = tokensOut,
+                    costUsd = EvalRunStore.estimateCostUsd(tokensIn, tokensOut),
+                    endReason = endReason,
+                    finished = endReason == "finish" || endReason == "finish_failed",
+                    finishSummary = finishSummary,
+                    hitlCount = hitlCount,
+                    tools = toolRecords.toList(),
+                )
+                val fileName = EvalRunStore.save(service, record)
+                if (fileName != null) {
+                    onEvent("ReAct: 평가 JSON 저장 — $fileName")
+                } else {
+                    onEvent("ReAct: 평가 JSON 저장 실패")
+                }
+            }
         }
     }
 

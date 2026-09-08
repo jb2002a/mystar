@@ -32,9 +32,15 @@ sealed class LlmResult {
         val toolCall: ToolCall,
         /** 히스토리에 그대로 넣을 assistant message (tool_calls 포함). */
         val assistantMessage: JsonObject,
+        val inputTokens: Int? = null,
+        val outputTokens: Int? = null,
     ) : LlmResult()
 
-    data class Failure(val message: String) : LlmResult()
+    data class Failure(
+        val message: String,
+        val inputTokens: Int? = null,
+        val outputTokens: Int? = null,
+    ) : LlmResult()
 }
 
 class CloudLlmClient(
@@ -192,6 +198,7 @@ class CloudLlmClient(
                     Log.i(TAG, "LLM res ← HTTP ${response.code} (${responseBody.length} chars)")
                     logChunked(TAG, "LLM res body", responseBody)
                     val usageMetadata = parseUsage(responseBody)
+                    val (inputTokens, outputTokens) = tokensFromUsage(usageMetadata)
                     if (!response.isSuccessful) {
                         val snippet = responseBody.take(200).replace('\n', ' ')
                         val err = "HTTP ${response.code}: $snippet"
@@ -204,9 +211,13 @@ class CloudLlmClient(
                             ),
                             error = err,
                         )
-                        return@withContext LlmResult.Failure(err)
+                        return@withContext LlmResult.Failure(
+                            message = err,
+                            inputTokens = inputTokens,
+                            outputTokens = outputTokens,
+                        )
                     }
-                    val parsed = parseToolCall(responseBody)
+                    val parsed = attachUsage(parseToolCall(responseBody), inputTokens, outputTokens)
                     when (parsed) {
                         is LlmResult.Success -> {
                             tracer.endRun(
@@ -294,6 +305,28 @@ class CloudLlmClient(
             host.contains("openai") -> "openai"
             else -> "openai"
         }
+    }
+
+    private fun tokensFromUsage(usageMetadata: JsonObject?): Pair<Int?, Int?> {
+        if (usageMetadata == null) return null to null
+        val inputTokens = usageMetadata["input_tokens"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+        val outputTokens = usageMetadata["output_tokens"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+        return inputTokens to outputTokens
+    }
+
+    private fun attachUsage(
+        result: LlmResult,
+        inputTokens: Int?,
+        outputTokens: Int?,
+    ): LlmResult = when (result) {
+        is LlmResult.Success -> result.copy(
+            inputTokens = inputTokens,
+            outputTokens = outputTokens,
+        )
+        is LlmResult.Failure -> result.copy(
+            inputTokens = inputTokens,
+            outputTokens = outputTokens,
+        )
     }
 
     private fun parseUsage(responseBody: String): JsonObject? {
