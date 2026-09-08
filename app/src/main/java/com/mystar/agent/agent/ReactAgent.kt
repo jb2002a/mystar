@@ -5,6 +5,7 @@ import com.mystar.agent.AgentAccessibilityService
 import com.mystar.agent.BuildConfig
 import com.mystar.agent.EvalRunRecord
 import com.mystar.agent.EvalRunStore
+import com.mystar.agent.EvalTag
 import com.mystar.agent.EvalToolEntry
 import com.mystar.agent.StabilizeOutcome
 import com.mystar.agent.llm.CloudLlmClient
@@ -52,6 +53,7 @@ class ReactAgent(
      * @param onFinishSummary finish 호출 시 사용자에게 읽어줄 summary (비어 있으면 기본 문구)
      * @param onSpeakQuestion ask_user 질문 TTS
      * @param onAskUser ask_user 대기 — 사람 응답을 반환한다
+     * @param evalTag 평가 큐 실행이면 큐/태스크/시도 번호. 단발 실행이면 null
      * @return true if finish로 정상 종료, false if 실패/최대 라운드/중단
      */
     suspend fun run(
@@ -62,6 +64,7 @@ class ReactAgent(
         onAskUser: suspend (AskUserPrompt) -> AskUserAnswer = { prompt ->
             askUserDefault(prompt, onSpeakQuestion)
         },
+        evalTag: EvalTag? = null,
     ): Boolean = mutex.withLock {
         if (!running.compareAndSet(false, true)) {
             onEvent("ReAct: 이미 실행 중")
@@ -69,7 +72,7 @@ class ReactAgent(
         }
         stopRequested.set(false)
         try {
-            execute(goal.trim(), onEvent, onFinishSummary, onSpeakQuestion, onAskUser)
+            execute(goal.trim(), onEvent, onFinishSummary, onSpeakQuestion, onAskUser, evalTag)
         } finally {
             running.set(false)
             stopRequested.set(false)
@@ -82,6 +85,7 @@ class ReactAgent(
         onFinishSummary: (String) -> Unit,
         onSpeakQuestion: suspend (String) -> Unit,
         onAskUser: suspend (AskUserPrompt) -> AskUserAnswer,
+        evalTag: EvalTag?,
     ): Boolean {
         if (goal.isEmpty()) {
             onEvent("ReAct: 목표가 비어 있음")
@@ -365,6 +369,7 @@ class ReactAgent(
                     finishSummary = finishSummary,
                     hitlCount = hitlCount,
                     tools = toolRecords.toList(),
+                    tag = evalTag,
                 )
                 val fileName = EvalRunStore.save(service, record)
                 if (fileName != null) {

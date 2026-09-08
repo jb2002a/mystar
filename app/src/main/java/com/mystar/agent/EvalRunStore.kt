@@ -27,6 +27,13 @@ data class EvalToolEntry(
     val result: String,
 )
 
+/** 평가 큐가 붙이는 실행 식별자. 단발 실행이면 null. */
+data class EvalTag(
+    val queueId: String,
+    val taskIndex: Int,
+    val attempt: Int,
+)
+
 data class EvalRunRecord(
     val task: String,
     val elapsedS: Double,
@@ -39,6 +46,7 @@ data class EvalRunRecord(
     val finishSummary: String?,
     val hitlCount: Int,
     val tools: List<EvalToolEntry>,
+    val tag: EvalTag? = null,
 )
 
 object EvalRunStore {
@@ -72,10 +80,16 @@ object EvalRunStore {
             val tsForFile = fileTimestampFormat().format(now)
             val tsForJson = jsonTimestampFormat().format(now)
             val slug = sanitizeTaskSlug(record.task)
-            val fileName = "${tsForFile}_$slug.json"
+            val tagPart = record.tag
+                ?.let { "_t${it.taskIndex.toString().padStart(2, '0')}a${it.attempt}" }
+                .orEmpty()
+            val fileName = "$tsForFile${tagPart}_$slug.json"
             val file = File(dir, fileName)
             val body = buildJsonObject {
                 put("ts", tsForJson)
+                put("queue_id", record.tag?.queueId?.let { JsonPrimitive(it) } ?: JsonNull)
+                put("task_index", record.tag?.taskIndex?.let { JsonPrimitive(it) } ?: JsonNull)
+                put("attempt", record.tag?.attempt?.let { JsonPrimitive(it) } ?: JsonNull)
                 put("task", record.task)
                 put("elapsed_s", JsonPrimitive(record.elapsedS))
                 put("rounds", record.rounds)
