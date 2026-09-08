@@ -1,0 +1,39 @@
+{
+    "ts": "2026-09-08T16:48:31+09:00",
+    "queue_id": "20260908T163723",
+    "task_index": 5,
+    "attempt": 3,
+    "task": "서울에서 대전까지 얼마나걸려",
+    "elapsed_s": 6.5,
+    "rounds": 2,
+    "tokens_in": 3998,
+    "tokens_out": 88,
+    "cost_usd": 0.0108,
+    "end_reason": "finish",
+    "finished": true,
+    "finish_summary": "서울에서 대전까지 KTX를 이용하면 평균 52분이 소요됩니다. 자가용으로는 평균 1시간 54분이 걸립니다.",
+    "hitl_count": 0,
+    "tools": [
+        {
+            "round": 1,
+            "name": "web_search",
+            "reason": null,
+            "args": {
+                "query": "서울에서 대전까지 소요 시간"
+            },
+            "ok": true,
+            "result": "web_search query=\"서울에서 대전까지 소요 시간\" (5건)"
+        },
+        {
+            "round": 2,
+            "name": "finish",
+            "reason": "서울에서 대전까지의 소요 시간을 다양한 교통수단으로 확인했다.",
+            "args": {
+                "summary": "서울에서 대전까지 KTX를 이용하면 평균 52분이 소요됩니다. 자가용으로는 평균 1시간 54분이 걸립니다.",
+                "reason": "서울에서 대전까지의 소요 시간을 다양한 교통수단으로 확인했다."
+            },
+            "ok": true,
+            "result": "finish: 서울에서 대전까지 KTX를 이용하면 평균 52분이 소요됩니다. 자가용으로는 평균 1시간 54분이 걸립니다."
+        }
+    ]
+}

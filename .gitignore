@@ -45,5 +45,5 @@ Thumbs.db
 *.log
 
 # Evaluation: device-pulled artifacts
-docs/evaluation/result/device/files/
+docs/evaluation/result/device/files/**/*.zip
 docs/evaluation/result/device/eval.tar
