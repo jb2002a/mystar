@@ -39,6 +39,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -75,6 +76,7 @@ class MainActivity : ComponentActivity() {
         ServiceStatus.init(this)
         ServiceStatus.refreshFromInstance()
         ServiceStatus.appendLog("MainActivity.onCreate")
+        EvalQueueRunner.ensureLoaded(this)
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -414,7 +416,9 @@ private fun AgentHomeScreen(
                     }
                 } else {
                     Text(
-                        text = "한 줄에 목표 하나. 태스크마다 연속으로 반복하고, 런 사이에 최근 앱을 닫고 홈으로 돌아갑니다.",
+                        text = "원본: assets/${EvalSet.ASSET_PATH}. 태스크마다 연속으로 반복하고," +
+                            " 런 사이에 최근 앱을 닫고 홈으로 돌아갑니다." +
+                            " 아래 편집은 이번 실행에만 적용됩니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -427,6 +431,13 @@ private fun AgentHomeScreen(
                         maxLines = 10,
                         enabled = !busy,
                     )
+                    TextButton(
+                        onClick = { EvalQueueRunner.loadFromAsset(context) },
+                        enabled = !busy,
+                        modifier = Modifier.align(Alignment.End),
+                    ) {
+                        Text("원본 불러오기")
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),

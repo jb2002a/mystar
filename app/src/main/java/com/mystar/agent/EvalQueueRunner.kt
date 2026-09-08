@@ -1,5 +1,6 @@
 package com.mystar.agent
 
+import android.content.Context
 import com.mystar.agent.agent.ReactAgent
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -17,7 +18,8 @@ import kotlinx.coroutines.withContext
 
 /**
  * 골든셋 자동 연속 실행.
- * 태스크별로 repeat회 연속 실행하고, 런 사이에 최근 앱을 닫고 홈으로 되돌린다.
+ * 목록 원본은 EvalSet(assets), 태스크별로 repeat회 연속 실행하고,
+ * 런 사이에 최근 앱을 닫고 홈으로 되돌린다.
  * 실행이 실패해도 기록만 남기고 다음 런으로 넘어간다.
  *
  * MainActivity가 큐에 의해 함께 닫히므로 상태는 프로세스 싱글턴이 들고 있는다.
@@ -51,20 +53,6 @@ object EvalQueueRunner {
         "Clear all",
     )
 
-    /** docs/evaluation/set_D0.md 골든셋. */
-    private val DEFAULT_TASKS = listOf(
-        "카카오톡에서 기흥에게 오늘 병원 다녀왔어라고 보내줘",
-        "카카오톡에서 기흥이 마지막으로 보낸 말 읽어줘",
-        "내일 서울 날씨알려줘",
-        "익산에서 지금 여는 약국 찾아줘",
-        "서울에서 대전까지 얼마나걸려",
-        "설정에서 글자 크기 조절하는 곳 열어줘",
-        "오전 8시로 알람설정해줘.",
-        "네이버에서 뉴스 열어줘",
-        "막내에게 전화 걸어줘",
-        "막내에게 문자로 집에 잘 도착했어라고 보내줘",
-    )
-
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     @Volatile
@@ -73,7 +61,7 @@ object EvalQueueRunner {
     private val _state = MutableStateFlow(QueueState())
     val state: StateFlow<QueueState> = _state.asStateFlow()
 
-    private val _tasksText = MutableStateFlow(DEFAULT_TASKS.joinToString("\n"))
+    private val _tasksText = MutableStateFlow("")
     val tasksText: StateFlow<String> = _tasksText.asStateFlow()
 
     private val _repeatText = MutableStateFlow("3")
@@ -84,6 +72,19 @@ object EvalQueueRunner {
 
     fun setTasksText(value: String) {
         _tasksText.value = value
+    }
+
+    /** 목록이 비어 있을 때만 원본을 채운다. 앱 시작 시 1회. */
+    fun ensureLoaded(context: Context) {
+        if (_tasksText.value.isNotBlank()) return
+        loadFromAsset(context)
+    }
+
+    /** 편집한 목록을 버리고 원본을 다시 읽는다. */
+    fun loadFromAsset(context: Context) {
+        val tasks = EvalSet.load(context)
+        _tasksText.value = tasks.joinToString("\n")
+        ServiceStatus.appendLog("큐: 골든셋 ${tasks.size}개 불러옴 (${EvalSet.ASSET_PATH})")
     }
 
     fun setRepeatText(value: String) {
@@ -132,8 +133,11 @@ object EvalQueueRunner {
         ServiceStatus.appendLog("큐: 중단 요청 — 현재 런을 정리한 뒤 멈춥니다")
     }
 
+    /** 원본과 같은 규칙 — 빈 줄과 '#' 주석은 건너뛴다. */
     private fun parseTasks(): List<String> =
-        _tasksText.value.lines().map { it.trim() }.filter { it.isNotEmpty() }
+        _tasksText.value.lines()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && !it.startsWith("#") }
 
     private suspend fun runQueue(tasks: List<String>, repeat: Int, cooldownMs: Long) {
         val queueId = queueIdFormat().format(Date())
