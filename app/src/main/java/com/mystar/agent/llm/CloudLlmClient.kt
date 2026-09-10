@@ -47,6 +47,7 @@ class CloudLlmClient(
     private val apiKey: String = BuildConfig.LLM_API_KEY,
     private val baseUrl: String = BuildConfig.LLM_BASE_URL,
     private val model: String = BuildConfig.LLM_MODEL,
+    private val reasoningEffort: String = BuildConfig.LLM_REASONING_EFFORT,
     private val tools: List<ToolDefinition> = ToolRegistry.definitions,
     private val tracer: LangSmithClient = LangSmithClient.shared,
 ) {
@@ -273,6 +274,11 @@ class CloudLlmClient(
             put("tools", toolsToJson(tools))
             put("tool_choice", "required")
             put("temperature", 0)
+            // reasoning 모델(gpt-5.6-luna 등)은 chat/completions에서 function tools와
+            // 기본 reasoning_effort 조합을 거부한다. local.properties에서 "none"을 주면 회피.
+            if (reasoningEffort.isNotBlank()) {
+                put("reasoning_effort", reasoningEffort)
+            }
         }
     }
 

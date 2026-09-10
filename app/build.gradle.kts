@@ -16,6 +16,7 @@ val localProperties = Properties().apply {
 val llmApiKey: String = localProperties.getProperty("LLM_API_KEY", "")
 val llmBaseUrl: String = localProperties.getProperty("LLM_BASE_URL", "")
 val llmModel: String = localProperties.getProperty("LLM_MODEL", "")
+val llmReasoningEffort: String = localProperties.getProperty("LLM_REASONING_EFFORT", "")
 val langsmithApiKey: String = localProperties.getProperty("LANGSMITH_API_KEY", "")
 val langsmithProject: String = localProperties.getProperty("LANGSMITH_PROJECT", "")
 val langsmithEndpoint: String = localProperties.getProperty(
@@ -34,12 +35,17 @@ android {
         applicationId = "com.mystar.agent"
         minSdk = 24
         targetSdk = 35
-        versionCode = 28
-        versionName = "0.37"
+        versionCode = 29
+        versionName = "0.38"
 
         buildConfigField("String", "LLM_API_KEY", "\"${escapeBuildConfig(llmApiKey)}\"")
         buildConfigField("String", "LLM_BASE_URL", "\"${escapeBuildConfig(llmBaseUrl)}\"")
         buildConfigField("String", "LLM_MODEL", "\"${escapeBuildConfig(llmModel)}\"")
+        buildConfigField(
+            "String",
+            "LLM_REASONING_EFFORT",
+            "\"${escapeBuildConfig(llmReasoningEffort)}\"",
+        )
         buildConfigField("String", "LANGSMITH_API_KEY", "\"${escapeBuildConfig(langsmithApiKey)}\"")
         buildConfigField("String", "LANGSMITH_PROJECT", "\"${escapeBuildConfig(langsmithProject)}\"")
         buildConfigField(
