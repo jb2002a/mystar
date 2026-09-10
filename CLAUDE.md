@@ -1,6 +1,7 @@
----
-description: Behavioral guidelines to reduce common LLM coding mistakes. Use when writing, reviewing, or refactoring code to avoid overcomplication, make surgical changes, surface assumptions, and define verifiable success criteria.
-alwaysApply: true
+# CLAUDE.md
+
+이 저장소에서 코드를 작성·리뷰·리팩터링할 때 항상 적용한다.
+
 ---
 
 # Karpathy behavioral guidelines
@@ -70,3 +71,25 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ALWAYS ANSWER IN KOREAN.
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+---
+
+# 버전 부여 (0.xx)
+
+기능 구현·수정이 끝날 때마다 앱 버전을 **반드시** 한 단계 올린다. 기능만 넣고 버전을 그대로 두지 않는다.
+
+## 형식
+
+- `versionName`: `0.xx` (1.0 이전). 예: `0.01` → `0.02` → `0.03`
+- `versionCode`: 양의 정수. +0.01
+- 위치: `app/build.gradle.kts` — `defaultConfig`
+- 같은 작업에서 파일을 여러 개 고쳐도 **한 번만** 올린다
+
+## 올릴 때 / 올리지 않을 때
+
+- 올린다: 기능 추가, 동작 수정, 버그 수정
+- 올리지 않는다: 문서·주석·포맷만 변경
+
+## 마일스톤 라벨과 구분
+
+홈 화면 왼쪽 상단 라벨(`M6 — …`)은 마일스톤 단계 표시다. 앱 버전(`0.xx`)을 대체하지 않는다. 마일스톤을 끝낼 때는 라벨과 버전을 **둘 다** 갱신한다.
