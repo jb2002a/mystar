@@ -2,6 +2,10 @@
 
 이 저장소에서 코드를 작성·리뷰·리팩터링할 때 항상 적용한다.
 
+## Language
+
+**ALWAYS ANSWER IN KOREAN.**
+
 ---
 
 # Karpathy behavioral guidelines
@@ -66,9 +70,7 @@ For multi-step tasks, state a brief plan:
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
-## Language
-
-ALWAYS ANSWER IN KOREAN.
+---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
 
