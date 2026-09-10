@@ -33,6 +33,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -107,7 +108,7 @@ private fun AgentHomeScreen(
     val hitlMicGranted by ServiceStatus.hitlMicGranted.collectAsStateWithLifecycle()
     val pendingGoal by ServiceStatus.pendingGoal.collectAsStateWithLifecycle()
     val queueState by EvalQueueRunner.state.collectAsStateWithLifecycle()
-    val queueTasks by EvalQueueRunner.tasksText.collectAsStateWithLifecycle()
+    val queueTasks by EvalQueueRunner.tasks.collectAsStateWithLifecycle()
     val queueRepeat by EvalQueueRunner.repeatText.collectAsStateWithLifecycle()
     val queueCooldown by EvalQueueRunner.cooldownText.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
@@ -416,21 +417,44 @@ private fun AgentHomeScreen(
                     }
                 } else {
                     Text(
-                        text = "원본: docs/evaluation/set_D0.md. 태스크마다 연속으로 반복하고," +
-                            " 런 사이에 최근 앱을 닫고 홈으로 돌아갑니다." +
-                            " 아래 편집은 이번 실행에만 적용됩니다.",
+                        text = "원본: docs/evaluation/set_D0.md. 체크한 태스크만 실행하며," +
+                            " task_index는 골든셋 번호를 유지합니다." +
+                            " 런 사이에 최근 앱을 닫고 홈으로 돌아갑니다.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    OutlinedTextField(
-                        value = queueTasks,
-                        onValueChange = { EvalQueueRunner.setTasksText(it) },
-                        label = { Text("태스크 목록") },
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        minLines = 4,
-                        maxLines = 10,
-                        enabled = !busy,
-                    )
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "태스크 선택",
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                        TextButton(
+                            onClick = { EvalQueueRunner.uncheckAll() },
+                            enabled = !busy && queueTasks.any { it.checked },
+                        ) {
+                            Text("Uncheck all")
+                        }
+                    }
+                    queueTasks.forEach { task ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(
+                                checked = task.checked,
+                                onCheckedChange = { EvalQueueRunner.setTaskChecked(task.index, it) },
+                                enabled = !busy,
+                            )
+                            Text(
+                                text = "${task.index}. ${task.goal}",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
                     TextButton(
                         onClick = { EvalQueueRunner.loadFromAsset(context) },
                         enabled = !busy,

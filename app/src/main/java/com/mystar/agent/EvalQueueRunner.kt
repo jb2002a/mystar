@@ -26,6 +26,13 @@ import kotlinx.coroutines.withContext
  */
 object EvalQueueRunner {
 
+    /** 골든셋 한 줄. [index]는 set_D0.md 번호(1-based)로 고정. */
+    data class EvalTask(
+        val index: Int,
+        val goal: String,
+        val checked: Boolean = true,
+    )
+
     data class QueueState(
         val running: Boolean = false,
         /** 끝난 런 수. */
@@ -61,8 +68,8 @@ object EvalQueueRunner {
     private val _state = MutableStateFlow(QueueState())
     val state: StateFlow<QueueState> = _state.asStateFlow()
 
-    private val _tasksText = MutableStateFlow("")
-    val tasksText: StateFlow<String> = _tasksText.asStateFlow()
+    private val _tasks = MutableStateFlow<List<EvalTask>>(emptyList())
+    val tasks: StateFlow<List<EvalTask>> = _tasks.asStateFlow()
 
     private val _repeatText = MutableStateFlow("3")
     val repeatText: StateFlow<String> = _repeatText.asStateFlow()
@@ -70,21 +77,27 @@ object EvalQueueRunner {
     private val _cooldownText = MutableStateFlow("5")
     val cooldownText: StateFlow<String> = _cooldownText.asStateFlow()
 
-    fun setTasksText(value: String) {
-        _tasksText.value = value
+    fun setTaskChecked(index: Int, checked: Boolean) {
+        _tasks.value = _tasks.value.map { task ->
+            if (task.index == index) task.copy(checked = checked) else task
+        }
+    }
+
+    fun uncheckAll() {
+        _tasks.value = _tasks.value.map { it.copy(checked = false) }
     }
 
     /** 목록이 비어 있을 때만 원본을 채운다. 앱 시작 시 1회. */
     fun ensureLoaded(context: Context) {
-        if (_tasksText.value.isNotBlank()) return
+        if (_tasks.value.isNotEmpty()) return
         loadFromAsset(context)
     }
 
-    /** 편집한 목록을 버리고 원본을 다시 읽는다. */
+    /** 체크 상태를 초기화하고 원본을 다시 읽는다. */
     fun loadFromAsset(context: Context) {
-        val tasks = EvalSet.load(context)
-        _tasksText.value = tasks.joinToString("\n")
-        ServiceStatus.appendLog("큐: 골든셋 ${tasks.size}개 불러옴 (${EvalSet.ASSET_PATH})")
+        val goals = EvalSet.load(context)
+        _tasks.value = goals.mapIndexed { i, goal -> EvalTask(index = i + 1, goal = goal) }
+        ServiceStatus.appendLog("큐: 골든셋 ${goals.size}개 불러옴 (${EvalSet.ASSET_PATH})")
     }
 
     fun setRepeatText(value: String) {
@@ -95,9 +108,9 @@ object EvalQueueRunner {
         _cooldownText.value = value
     }
 
-    /** 현재 입력으로 만들어질 총 런 수. 입력이 잘못되면 0. */
+    /** 현재 선택으로 만들어질 총 런 수. 입력이 잘못되면 0. */
     fun plannedTotal(): Int {
-        val tasks = parseTasks()
+        val tasks = selectedTasks()
         val repeat = _repeatText.value.trim().toIntOrNull() ?: return 0
         if (repeat < 1) return 0
         return tasks.size * repeat
@@ -106,8 +119,8 @@ object EvalQueueRunner {
     /** @return 시작하지 못한 이유. 정상 시작이면 null. */
     fun start(): String? {
         if (_state.value.running) return "큐가 이미 실행 중입니다"
-        val tasks = parseTasks()
-        if (tasks.isEmpty()) return "태스크 목록이 비어 있습니다"
+        val tasks = selectedTasks()
+        if (tasks.isEmpty()) return "선택된 태스크가 없습니다"
         val repeat = _repeatText.value.trim().toIntOrNull()
         if (repeat == null || repeat < 1) return "반복 횟수는 1 이상이어야 합니다"
         val cooldownS = _cooldownText.value.trim().toIntOrNull()
@@ -133,13 +146,9 @@ object EvalQueueRunner {
         ServiceStatus.appendLog("큐: 중단 요청 — 현재 런을 정리한 뒤 멈춥니다")
     }
 
-    /** 원본과 같은 규칙 — 빈 줄과 '#' 주석은 건너뛴다. */
-    private fun parseTasks(): List<String> =
-        _tasksText.value.lines()
-            .map { it.trim() }
-            .filter { it.isNotEmpty() && !it.startsWith("#") }
+    private fun selectedTasks(): List<EvalTask> = _tasks.value.filter { it.checked }
 
-    private suspend fun runQueue(tasks: List<String>, repeat: Int, cooldownMs: Long) {
+    private suspend fun runQueue(tasks: List<EvalTask>, repeat: Int, cooldownMs: Long) {
         val queueId = queueIdFormat().format(Date())
         val total = tasks.size * repeat
         var done = 0
@@ -148,13 +157,14 @@ object EvalQueueRunner {
             "큐: 시작 — 태스크 ${tasks.size}개 × ${repeat}회 = ${total}런 (id=$queueId)",
         )
         try {
-            for ((index, goal) in tasks.withIndex()) {
+            for (task in tasks) {
+                val taskNo = task.index
+                val goal = task.goal
                 for (attempt in 1..repeat) {
                     if (stopRequested) {
                         ServiceStatus.appendLog("큐: 중단됨 — $done/$total 실행")
                         return
                     }
-                    val taskNo = index + 1
                     val service = AgentAccessibilityService.instance
                     if (service == null) {
                         ServiceStatus.appendLog("큐: 접근성 서비스 끊김 — $done/$total 에서 중단")
