@@ -1,0 +1,39 @@
+﻿# Build outputs
+bin/
+gen/
+out/
+build/
+app/build/
+
+# Gradle
+.gradle/
+
+# Local configuration (SDK path, API keys)
+local.properties
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+*.iws
+.idea_modules/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Generated binaries
+*.apk
+*.ap_
+*.aab
+*.dex
+*.class
+
+# Keystore
+*.jks
+*.keystore
+
+# Logs
+*.log
+
+# Evaluation: device-pulled artifacts
+docs/evaluation/result/device/files/
+docs/evaluation/result/device/eval.tar
