@@ -35,8 +35,8 @@ android {
         applicationId = "com.mystar.agent"
         minSdk = 24
         targetSdk = 35
-        versionCode = 29
-        versionName = "0.38"
+        versionCode = 31
+        versionName = "0.40"
 
         buildConfigField("String", "LLM_API_KEY", "\"${escapeBuildConfig(llmApiKey)}\"")
         buildConfigField("String", "LLM_BASE_URL", "\"${escapeBuildConfig(llmBaseUrl)}\"")
