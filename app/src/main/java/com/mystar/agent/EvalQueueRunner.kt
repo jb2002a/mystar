@@ -1,6 +1,9 @@
 package com.mystar.agent
 
 import android.content.Context
+import com.mystar.agent.agent.AskUserAnswer
+import com.mystar.agent.agent.AskUserKind
+import com.mystar.agent.agent.AskUserPrompt
 import com.mystar.agent.agent.ReactAgent
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -181,7 +184,7 @@ object EvalQueueRunner {
                         goal = goal,
                         phase = "앱 정리",
                     )
-                    resetApps(service, cooldownMs)
+                    val precondition = resetApps(service, cooldownMs)
                     if (stopRequested) {
                         ServiceStatus.appendLog("큐: 중단됨 — $done/$total 실행")
                         return
@@ -194,7 +197,8 @@ object EvalQueueRunner {
                         onEvent = { ServiceStatus.appendLog(it) },
                         onFinishSummary = { AgentTts.instance?.speak(it) },
                         onSpeakQuestion = { AgentTts.instance?.speakAwaitingDone(it) },
-                        evalTag = EvalTag(queueId, taskNo, attempt),
+                        onAskUser = { prompt -> autoAskUser(prompt) },
+                        evalTag = EvalTag(queueId, taskNo, attempt, precondition),
                     )
                     done++
                     if (ok) succeeded++
@@ -216,13 +220,15 @@ object EvalQueueRunner {
      * 다음 런의 전제(앱이 꺼져 있거나 홈 화면)를 맞춘다.
      * 홈 → 최근 앱 → '모두 닫기' → 홈 → 쿨다운.
      * '모두 닫기' 버튼을 못 찾으면 홈 복귀까지만 하고 로그를 남긴다.
+     *
+     * @return 평가 기록용 사전조건 결과: closed_all / home_only / recents_failed
      */
-    private suspend fun resetApps(service: AgentAccessibilityService, cooldownMs: Long) {
+    private suspend fun resetApps(service: AgentAccessibilityService, cooldownMs: Long): String {
         ServiceStatus.appendLog("큐: 앱 정리 — 홈 → 최근 앱 → 모두 닫기")
         service.performHome()
         delay(NAV_SETTLE_MS)
 
-        if (service.performRecents()) {
+        val precondition = if (service.performRecents()) {
             delay(RECENTS_SETTLE_MS)
             val nodeId = withContext(Dispatchers.Default) {
                 if (service.getScreenTree() == null) {
@@ -233,10 +239,14 @@ object EvalQueueRunner {
             }
             if (nodeId == null) {
                 ServiceStatus.appendLog("큐: 최근 앱에 '모두 닫기' 없음 — 홈 복귀만 수행")
+                "home_only"
             } else {
-                withContext(Dispatchers.Default) { service.tapNode(nodeId) }
+                val tapped = withContext(Dispatchers.Default) { service.tapNode(nodeId) }
                 delay(NAV_SETTLE_MS)
+                if (tapped) "closed_all" else "home_only"
             }
+        } else {
+            "recents_failed"
         }
 
         service.performHome()
@@ -244,6 +254,25 @@ object EvalQueueRunner {
         if (cooldownMs > 0) {
             _state.value = _state.value.copy(phase = "쿨다운 ${cooldownMs / 1000}초")
             delay(cooldownMs)
+        }
+        return precondition
+    }
+
+    /**
+     * 큐 실행은 사람이 지켜보지 않는다. set_D0.md 채점 규정상 ask_user(confirm)은
+     * 목표 문장 자체를 승인으로 보므로 자동 승인하고, missing_info는 채워줄 정보가
+     * 없으므로 즉시 실패(ask_user_abort) 처리한다.
+     */
+    private suspend fun autoAskUser(prompt: AskUserPrompt): AskUserAnswer {
+        return when (prompt.kind) {
+            AskUserKind.CONFIRM -> {
+                ServiceStatus.appendLog("큐: ask_user(confirm) 자동 승인 — ${prompt.question}")
+                AskUserAnswer.Approved
+            }
+            AskUserKind.MISSING_INFO -> {
+                ServiceStatus.appendLog("큐: ask_user(missing_info) 자동 실패 처리 — ${prompt.question}")
+                AskUserAnswer.Cancelled
+            }
         }
     }
 

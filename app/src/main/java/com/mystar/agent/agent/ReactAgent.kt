@@ -125,6 +125,7 @@ class ReactAgent(
         var shouldRecordEval = false
         var tokensIn = 0
         var tokensOut = 0
+        var tokensTotal = 0
         var finishSummary: String? = null
         var hitlCount = 0
         val toolRecords = mutableListOf<EvalToolEntry>()
@@ -134,15 +135,25 @@ class ReactAgent(
                 is LlmResult.Success -> {
                     llmResult.inputTokens?.let { tokensIn += it }
                     llmResult.outputTokens?.let { tokensOut += it }
+                    llmResult.totalTokens?.let { tokensTotal += it }
                 }
                 is LlmResult.Failure -> {
                     llmResult.inputTokens?.let { tokensIn += it }
                     llmResult.outputTokens?.let { tokensOut += it }
+                    llmResult.totalTokens?.let { tokensTotal += it }
                 }
             }
         }
 
-        fun recordTool(round: Int, toolCall: ToolCall, actionResult: ToolResult) {
+        fun recordTool(
+            round: Int,
+            toolCall: ToolCall,
+            actionResult: ToolResult,
+            screen: String?,
+            llmResult: LlmResult.Success,
+            llmMs: Long,
+            toolMs: Long,
+        ) {
             val reason = toolCall.args["reason"]?.jsonPrimitive?.contentOrNull?.trim()
                 ?.takeIf { it.isNotEmpty() }
             toolRecords.add(
@@ -150,11 +161,16 @@ class ReactAgent(
                     round = round,
                     name = toolCall.name,
                     reason = reason,
-                    args = LangSmithClient.sanitizeToolArgs(toolCall.name, toolCall.args),
+                    args = toolCall.args,
                     ok = actionResult.success,
-                    result = EvalRunStore.compactResult(
-                        LangSmithClient.sanitizeToolResultMessage(actionResult.message),
-                    ),
+                    result = actionResult.message,
+                    screen = screen,
+                    settle = null,
+                    tokensIn = llmResult.inputTokens,
+                    tokensOut = llmResult.outputTokens,
+                    tokensTotal = llmResult.totalTokens,
+                    llmMs = llmMs,
+                    toolMs = toolMs,
                 ),
             )
             if (toolCall.name == "ask_user" && actionResult.success) {
@@ -200,7 +216,8 @@ class ReactAgent(
             // val initialScreenContext = llmClient.buildInitialScreenContextMessage(initialTree)
             var latestScreen: String? = null
 
-            suspend fun refreshLatestScreen() {
+            /** @return 평가 기록용 안정화 결과 라벨 */
+            suspend fun refreshLatestScreen(): String {
                 onEvent(
                     "ReAct: 안정화 대기 (poll=${AgentAccessibilityService.STABILIZE_POLL_MS}ms" +
                         " match=${AgentAccessibilityService.STABILIZE_MATCH_COUNT}" +
@@ -209,12 +226,12 @@ class ReactAgent(
                 val outcome = service.waitForUiSettle(
                     aborted = { stopRequested.get() },
                 )
-                if (cancelled()) return
                 val settleLabel = when (outcome) {
                     StabilizeOutcome.QUIET -> "matched"
                     StabilizeOutcome.HARD_TIMEOUT -> "hard timeout"
                     StabilizeOutcome.ABORTED -> "aborted"
                 }
+                if (cancelled()) return settleLabel
                 onEvent("ReAct: 안정화 종료 ($settleLabel)")
 
                 val tree = withContext(Dispatchers.Default) {
@@ -228,6 +245,7 @@ class ReactAgent(
                     onEvent("ReAct: 트리 null (root 없음)")
                     latestScreen = null
                 }
+                return settleLabel
             }
 
             fun buildRequestMessages(round: Int): List<JsonObject> {
@@ -248,11 +266,14 @@ class ReactAgent(
                 completedRounds = round
                 onEvent("ReAct: 라운드 $round/$MAX_ROUNDS")
 
+                val screenSeen = latestScreen
                 val requestMessages = buildRequestMessages(round)
+                val llmStartedAt = SystemClock.elapsedRealtime()
                 val llmResult = llmClient.chooseNextTool(requestMessages, parentRunId = rootRunId)
+                val llmMs = SystemClock.elapsedRealtime() - llmStartedAt
                 accumulateTokens(llmResult)
-                val (toolCall, assistantMessage) = when (llmResult) {
-                    is LlmResult.Success -> llmResult.toolCall to llmResult.assistantMessage
+                val chosen = when (llmResult) {
+                    is LlmResult.Success -> llmResult
                     is LlmResult.Failure -> {
                         onEvent("ReAct: LLM 실패 — ${llmResult.message}")
                         endReason = "llm_failure"
@@ -260,10 +281,11 @@ class ReactAgent(
                         return false
                     }
                 }
+                val toolCall = chosen.toolCall
 
                 if (cancelled()) return false
 
-                messages.add(assistantMessage)
+                messages.add(chosen.assistantMessage)
                 onEvent(formatToolChoice(toolCall))
 
                 val toolRunId = tracer.startRun(
@@ -277,6 +299,7 @@ class ReactAgent(
                     parentRunId = rootRunId,
                 )
 
+                val toolStartedAt = SystemClock.elapsedRealtime()
                 val actionResult = when (toolCall.name) {
                     "ask_user" -> executeAskUser(
                         toolCall = toolCall,
@@ -291,6 +314,7 @@ class ReactAgent(
                         ToolRegistry.execute(toolCall)
                     }
                 }
+                val toolMs = SystemClock.elapsedRealtime() - toolStartedAt
 
                 tracer.endRun(
                     toolRunId,
@@ -305,7 +329,7 @@ class ReactAgent(
                 )
 
                 if (toolCall.name == "finish") {
-                    recordTool(round, toolCall, actionResult)
+                    recordTool(round, toolCall, actionResult, screenSeen, chosen, llmMs, toolMs)
                     onEvent("ReAct: 완료 — ${actionResult.message}")
                     val summary = toolCall.args["summary"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
                     val spokenSummary = summary.ifEmpty { DEFAULT_FINISH_SUMMARY }
@@ -319,7 +343,7 @@ class ReactAgent(
                     return actionResult.success
                 }
 
-                recordTool(round, toolCall, actionResult)
+                recordTool(round, toolCall, actionResult, screenSeen, chosen, llmMs, toolMs)
 
                 if (cancelled()) return false
 
@@ -336,7 +360,8 @@ class ReactAgent(
                 onEvent("ReAct: 결과 $status — ${actionResult.message.lineSequence().first()}")
 
                 if (toolCall.name !in NON_SCREEN_TOOLS) {
-                    refreshLatestScreen()
+                    val settle = refreshLatestScreen()
+                    toolRecords[toolRecords.lastIndex] = toolRecords.last().copy(settle = settle)
                 }
                 if (cancelled()) return false
             }
@@ -357,18 +382,30 @@ class ReactAgent(
             )
             if (shouldRecordEval) {
                 val elapsedS = ((SystemClock.elapsedRealtime() - runStartedAt) / 100.0).roundToInt() / 10.0
+                val finalScreen = withContext(Dispatchers.Default) {
+                    service.getScreenTree()
+                }
                 val record = EvalRunRecord(
                     task = goal,
                     elapsedS = elapsedS,
                     rounds = completedRounds,
                     tokensIn = tokensIn,
                     tokensOut = tokensOut,
-                    costUsd = EvalRunStore.estimateCostUsd(tokensIn, tokensOut),
+                    tokensTotal = tokensTotal,
+                    costUsd = EvalRunStore.estimateCostUsd(
+                        BuildConfig.LLM_MODEL,
+                        tokensIn,
+                        tokensOut,
+                        tokensTotal,
+                    ),
                     endReason = endReason,
+                    endError = endError,
                     finished = endReason == "finish" || endReason == "finish_failed",
                     finishSummary = finishSummary,
                     hitlCount = hitlCount,
                     tools = toolRecords.toList(),
+                    finalScreen = finalScreen,
+                    finalPackage = service.activePackageName(),
                     tag = evalTag,
                 )
                 val fileName = EvalRunStore.save(service, record)

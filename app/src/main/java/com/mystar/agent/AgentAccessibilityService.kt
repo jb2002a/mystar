@@ -307,6 +307,16 @@ class AgentAccessibilityService : AccessibilityService() {
         return if (label.isNullOrEmpty()) id else "$id \"$label\""
     }
 
+    /** 활성 창의 패키지명. 평가 기록의 종료 시점 foreground 앱. */
+    fun activePackageName(): String? {
+        val root = rootInActiveWindow ?: return null
+        return try {
+            root.packageName?.toString()
+        } finally {
+            root.recycle()
+        }
+    }
+
     /**
      * 마지막 getScreenTree() 스냅샷의 node id로 탭한다.
      * 좌표는 외부에 노출하지 않고 nodeCoords에서 조회한다.

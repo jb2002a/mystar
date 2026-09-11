@@ -7,6 +7,7 @@ import com.mystar.agent.tool.ToolDefinition
 import com.mystar.agent.tool.ToolRegistry
 import com.mystar.agent.tracing.LangSmithClient
 import java.net.URI
+import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -34,12 +35,15 @@ sealed class LlmResult {
         val assistantMessage: JsonObject,
         val inputTokens: Int? = null,
         val outputTokens: Int? = null,
+        /** 응답 usage.total_tokens. Gemini는 thinking 토큰이 여기에만 포함될 수 있다. */
+        val totalTokens: Int? = null,
     ) : LlmResult()
 
     data class Failure(
         val message: String,
         val inputTokens: Int? = null,
         val outputTokens: Int? = null,
+        val totalTokens: Int? = null,
     ) : LlmResult()
 }
 
@@ -200,6 +204,7 @@ class CloudLlmClient(
                     logChunked(TAG, "LLM res body", responseBody)
                     val usageMetadata = parseUsage(responseBody)
                     val (inputTokens, outputTokens) = tokensFromUsage(usageMetadata)
+                    val totalTokens = usageMetadata?.get("total_tokens")?.jsonPrimitive?.contentOrNull?.toIntOrNull()
                     if (!response.isSuccessful) {
                         val snippet = responseBody.take(200).replace('\n', ' ')
                         val err = "HTTP ${response.code}: $snippet"
@@ -216,9 +221,10 @@ class CloudLlmClient(
                             message = err,
                             inputTokens = inputTokens,
                             outputTokens = outputTokens,
+                            totalTokens = totalTokens,
                         )
                     }
-                    val parsed = attachUsage(parseToolCall(responseBody), inputTokens, outputTokens)
+                    val parsed = attachUsage(parseToolCall(responseBody), inputTokens, outputTokens, totalTokens)
                     when (parsed) {
                         is LlmResult.Success -> {
                             tracer.endRun(
@@ -273,7 +279,7 @@ class CloudLlmClient(
             )
             put("tools", toolsToJson(tools))
             put("tool_choice", "required")
-            put("temperature", 0)
+            put("temperature", TEMPERATURE)
             // reasoning 모델(gpt-5.6-luna 등)은 chat/completions에서 function tools와
             // 기본 reasoning_effort 조합을 거부한다. local.properties에서 "none"을 주면 회피.
             if (reasoningEffort.isNotBlank()) {
@@ -324,14 +330,17 @@ class CloudLlmClient(
         result: LlmResult,
         inputTokens: Int?,
         outputTokens: Int?,
+        totalTokens: Int?,
     ): LlmResult = when (result) {
         is LlmResult.Success -> result.copy(
             inputTokens = inputTokens,
             outputTokens = outputTokens,
+            totalTokens = totalTokens,
         )
         is LlmResult.Failure -> result.copy(
             inputTokens = inputTokens,
             outputTokens = outputTokens,
+            totalTokens = totalTokens,
         )
     }
 
@@ -467,6 +476,9 @@ class CloudLlmClient(
         private const val LOG_CHUNK = 3500
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
+        /** 요청 temperature. 평가 기록(run_config)에도 남긴다. */
+        const val TEMPERATURE = 0
+
         private val SYSTEM_PROMPT = """
 당신은 Android 접근성 트리로 화면을 보고 도구로 조작하는 에이전트다.
 매 라운드 도구를 한 번만 호출한다.
@@ -482,6 +494,14 @@ class CloudLlmClient(
 - 앱 전환은 back이 아니라 open_app.
 - 날씨는 네이버앱을 사용한다. 검색에 성공했다면 트리에 주입되는 정보가 날씨정보이므로 사용한다.
 """.trimIndent()
+
+        /** 평가 기록용: 시스템 프롬프트 SHA-256 앞 8자리. 프롬프트가 바뀌면 달라진다. */
+        val systemPromptSha: String by lazy {
+            MessageDigest.getInstance("SHA-256")
+                .digest(SYSTEM_PROMPT.toByteArray())
+                .joinToString("") { "%02x".format(it) }
+                .take(8)
+        }
 
         fun buildChatCompletionsUrl(baseUrl: String): String {
             val trimmed = baseUrl.trimEnd('/')
