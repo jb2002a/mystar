@@ -3,6 +3,11 @@
 
 $ErrorActionPreference = "Stop"
 
+# adb exec-out UTF-8 출력을 PowerShell이 깨지 않게 한다
+chcp 65001 | Out-Null
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+
 $package = "com.mystar.agent"
 $remoteDir = "files/eval"
 $localDir = Join-Path $PSScriptRoot "..\docs\evaluation\result\device\files\eval"
@@ -12,13 +17,15 @@ if (-not (Test-Path $localDir)) {
 }
 
 Write-Host "기기에서 $remoteDir 목록 조회 중..."
-$listOutput = adb shell run-as $package ls $remoteDir 2>&1
+$listOutput = adb exec-out run-as $package ls $remoteDir 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Error "run-as로 $remoteDir 목록을 가져오지 못했습니다: $listOutput"
     exit 1
 }
 
-$files = $listOutput -split "`r?`n" | Where-Object { $_.Trim() -like "*.json" }
+$files = $listOutput -split "`r?`n" |
+    ForEach-Object { $_.Trim() } |
+    Where-Object { $_ -and $_ -match '\.json$' }
 
 if (-not $files -or $files.Count -eq 0) {
     Write-Host "가져올 json 파일이 없습니다."
