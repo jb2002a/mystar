@@ -884,7 +884,7 @@ class AgentAccessibilityService : AccessibilityService() {
         private const val SCROLL_SWIPE_DURATION_MS = 250L
         const val STABILIZE_POLL_MS = 200L
         const val STABILIZE_MATCH_COUNT = 4
-        const val HARD_TIMEOUT_MS = 10_000L
+        const val HARD_TIMEOUT_MS = 15_000L
 
         @Volatile
         var instance: AgentAccessibilityService? = null
