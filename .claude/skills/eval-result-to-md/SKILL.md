@@ -30,7 +30,7 @@ python .claude/skills/eval-result-to-md/build_md.py <model_dir_name>
    - 소요시간(s) ← `elapsed_s`
    - 라운드 ← `rounds`
    - 총 토큰/금액$ ← `tokens_total`(`$cost_usd`)
-   - **결과 열은 비워둔다** (사용자가 직접 채워 넣음)
+   - 표에 결과 열은 넣지 않는다 (성공/실패 판단은 flow 상세 아래에 사람이 적음)
 3. **flow는 표 아래 별도 섹션**(`## flow 상세`)에 task별로, attempt별로 나눠서 작성.
    tool 호출을 `{round}. \`{name}\` — {reason} ({round_s}s)` 형식으로 나열하되, 단순 나열이 아니라
    **왜 실패했는지까지 표시**한다. `{round_s}`는 그 라운드에 소모된 시간(`llm_ms + tool_ms`, 초 단위

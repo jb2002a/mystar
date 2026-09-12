@@ -86,8 +86,8 @@ def main():
 
     lines = []
     lines.append(f"# {args.model} 결과 정리\n")
-    lines.append("| # | Task | 소요시간(s) | 라운드 | 총 토큰/금액$ | 결과 |")
-    lines.append("|---|------|------------|--------|--------------|------|")
+    lines.append("| # | Task | 소요시간(s) | 라운드 | 총 토큰/금액$ |")
+    lines.append("|---|------|------------|--------|--------------|")
 
     flow_sections = []
 
@@ -105,7 +105,7 @@ def main():
             f"a{d['attempt']}: {tokens_total(d)}(${d['cost_usd']})" for d in attempts
         )
 
-        lines.append(f"| {ti} | {task_text} | {elapsed} | {rounds} | {tok_cost} |  |")
+        lines.append(f"| {ti} | {task_text} | {elapsed} | {rounds} | {tok_cost} |")
 
         flow_lines = [f"### Task {ti} flow — {task_text}"]
         for d in attempts:
