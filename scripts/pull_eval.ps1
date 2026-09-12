@@ -1,12 +1,7 @@
-# 평가(eval) 결과 json을 기기 내부 저장소에서 PC로 자동 pull
-# 사용법: PowerShell에서 ./scripts/pull_eval.ps1
+# Pull eval result json files from device internal storage to PC
+# Usage: ./scripts/pull_eval.ps1
 
 $ErrorActionPreference = "Stop"
-
-# adb exec-out UTF-8 출력을 PowerShell이 깨지 않게 한다
-chcp 65001 | Out-Null
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$OutputEncoding = [System.Text.Encoding]::UTF8
 
 $package = "com.mystar.agent"
 $remoteDir = "files/eval"
@@ -16,10 +11,10 @@ if (-not (Test-Path $localDir)) {
     New-Item -ItemType Directory -Force -Path $localDir | Out-Null
 }
 
-Write-Host "기기에서 $remoteDir 목록 조회 중..."
+Write-Host "Listing $remoteDir on device..."
 $listOutput = adb exec-out run-as $package ls $remoteDir 2>&1
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "run-as로 $remoteDir 목록을 가져오지 못했습니다: $listOutput"
+    Write-Error "Failed to list $remoteDir via run-as: $listOutput"
     exit 1
 }
 
@@ -28,11 +23,11 @@ $files = $listOutput -split "`r?`n" |
     Where-Object { $_ -and $_ -match '\.json$' }
 
 if (-not $files -or $files.Count -eq 0) {
-    Write-Host "가져올 json 파일이 없습니다."
+    Write-Host "No json files to pull."
     exit 0
 }
 
-Write-Host "총 $($files.Count)개 파일 발견. pull 시작..."
+Write-Host "Found $($files.Count) file(s). Starting pull..."
 
 $okCount = 0
 $failCount = 0
@@ -42,18 +37,18 @@ foreach ($f in $files) {
     $remotePath = "$remoteDir/$f"
     $localPath = Join-Path $localDir $f
 
-    # adb exec-out을 cmd 리다이렉션으로 받아 바이너리 손상을 방지한다
+    # Use cmd redirect to avoid binary corruption from adb exec-out
     cmd /c "adb exec-out run-as $package cat `"$remotePath`" > `"$localPath`""
 
     if ((Test-Path $localPath) -and ((Get-Item $localPath).Length -gt 0)) {
         adb shell run-as $package rm $remotePath | Out-Null
         $okCount++
     } else {
-        Write-Warning "pull 실패: $f"
+        Write-Warning "Pull failed: $f"
         Remove-Item -ErrorAction SilentlyContinue $localPath
         $failCount++
     }
 }
 
-Write-Host "완료: 성공 $okCount, 실패 $failCount"
-Write-Host "저장 위치: $localDir"
+Write-Host "Done: $okCount succeeded, $failCount failed"
+Write-Host "Saved to: $localDir"
