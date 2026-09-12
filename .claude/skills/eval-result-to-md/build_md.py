@@ -15,6 +15,14 @@ import os
 import re
 from collections import Counter
 
+
+def round_time_suffix(t):
+    # 구버전 기록은 llm_ms/tool_ms 필드 자체가 없음 -> 표시하지 않음 (0.0s로 오인 방지)
+    if "llm_ms" not in t and "tool_ms" not in t:
+        return ""
+    round_s = (t.get("llm_ms", 0) + t.get("tool_ms", 0)) / 1000
+    return f" ({round_s:.1f}s)"
+
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 BASE_DIR = os.path.join(
     REPO_ROOT, "docs", "evaluation", "result", "device", "files", "기록용", "초기AB테스트"
@@ -116,13 +124,13 @@ def main():
                     question = t.get("args", {}).get("question", "")
                     kind = t.get("args", {}).get("kind", "")
                     line = (
-                        f"{t['round']}. 🙋 **`ask_user`(HITL)** — {reason}\n"
+                        f"{t['round']}. 🙋 **`ask_user`(HITL)** — {reason}{round_time_suffix(t)}\n"
                         f"    - 질문({kind}): \"{question}\"\n"
                         f"    - 결과: {t.get('result', '')}"
                     )
                     flow_lines.append(line)
                     continue
-                line = f"{t['round']}. `{t['name']}` — {reason}"
+                line = f"{t['round']}. `{t['name']}` — {reason}{round_time_suffix(t)}"
                 ok = t.get("ok", True)
                 settle = t.get("settle")
                 if not ok:

@@ -32,8 +32,10 @@ python .claude/skills/eval-result-to-md/build_md.py <model_dir_name>
    - 총 토큰/금액$ ← `tokens_total`(`$cost_usd`)
    - **결과 열은 비워둔다** (사용자가 직접 채워 넣음)
 3. **flow는 표 아래 별도 섹션**(`## flow 상세`)에 task별로, attempt별로 나눠서 작성.
-   tool 호출을 `{round}. \`{name}\` — {reason}` 형식으로 나열하되, 단순 나열이 아니라
-   **왜 실패했는지까지 표시**한다:
+   tool 호출을 `{round}. \`{name}\` — {reason} ({round_s}s)` 형식으로 나열하되, 단순 나열이 아니라
+   **왜 실패했는지까지 표시**한다. `{round_s}`는 그 라운드에 소모된 시간(`llm_ms + tool_ms`, 초 단위
+   소수 첫째자리)이다. 구버전 기록처럼 `llm_ms`/`tool_ms` 필드 자체가 없으면 `(0.0s)`로 잘못
+   표시하지 말고 시간 표시를 생략한다:
    - `ok: false`면 → `❌ 실패: {result}` (result에 실패 사유 텍스트가 들어있음, 예:
      "존재하지 않는 id 또는 제스처 실패"). `node_id`가 있는 액션(`tap_node` 등)이면
      **그 실패한 tool 자신의 `screen` 텍스트에 그 `node_id`(`[nXX]` 패턴)가 실제로 있었는지 대조**해서
