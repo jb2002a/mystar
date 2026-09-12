@@ -26,7 +26,7 @@ object ToolRegistry {
         ),
         ToolDefinition(
             name = "tap_node",
-            description = "최신 화면 트리에 있는 node id를 탭한다. 예: n3",
+            description = "최신 화면 트리에 있는 node id를 탭한다. 트리가 없으면 쓰지 않는다. node id는 그 트리에 있는 값만 쓴다. 예: n3",
             parameters = objectSchema(
                 "node_id" to stringProp("탭할 node id (예: n3)"),
                 "reason" to reasonProp(),
@@ -35,9 +35,9 @@ object ToolRegistry {
         ),
         ToolDefinition(
             name = "input_text",
-            description = "node id로 입력 필드를 포커스한 뒤 텍스트를 넣는다. text는 사용자가 말한 문구 그대로. 의역·이모지·마침표 추가 금지.",
+            description = "node id로 입력 필드를 포커스한 뒤 텍스트를 넣는다. 트리가 없으면 쓰지 않는다. node id는 그 트리에 있는 값만 쓴다. 메세지/카카오톡 등에서는 사용자가 입력한 문장 그대로 보낸다.",
             parameters = objectSchema(
-                "text" to stringProp("입력할 텍스트"),
+                "text" to stringProp("사용자가 입력한 문장 그대로 (메세지/카카오톡 등)"),
                 "node_id" to stringProp("입력 필드의 node id"),
                 "reason" to reasonProp(),
                 required = listOf("text", "node_id", "reason"),
@@ -53,7 +53,7 @@ object ToolRegistry {
         ),
         ToolDefinition(
             name = "scroll",
-            description = "최신 화면 트리에서 scroll 마크가 있는 node id로 목록을 한 칸 스크롤한다. scroll 후 node id는 전부 새로 발급된다. 같은 scroll 연속 반복 금지.",
+            description = "최신 화면 트리에서 scroll 마크가 있는 node id로 목록을 한 칸 스크롤한다. 트리가 없으면 쓰지 않는다. node id는 그 트리에 있는 값만 쓴다. scroll 후 node id는 전부 새로 발급된다. 같은 scroll 연속 반복 금지.",
             parameters = objectSchema(
                 "node_id" to stringProp("scroll 마크가 있는 node id"),
                 "direction" to enumProp("스크롤 방향", listOf("up", "down")),
@@ -63,7 +63,7 @@ object ToolRegistry {
         ),
         ToolDefinition(
             name = "web_search",
-            description = "웹 검색 API로 시세·사실 등 웹 정보를 가져온다. 구글/크롬을 open_app으로 열지 않는다. 실패 시 브라우저를 열지 말고 finish로 알린다. 카톡 친구·설정 항목 등 앱 안 검색에는 쓰지 않는다.",
+            description = "웹 조회용. 시세·사실 등 웹 정보를 가져온다. 구글/크롬을 open_app으로 열지 않는다. 그 검색 화면을 조작해야 할 때만 브라우저를 연다. 실패 시 브라우저를 열지 말고 finish로 알린다. 카톡 친구·설정 항목 등 앱 안 검색에는 쓰지 않는다.",
             parameters = objectSchema(
                 "query" to stringProp("검색어"),
                 "reason" to reasonProp(),
@@ -73,8 +73,8 @@ object ToolRegistry {
         ToolDefinition(
             name = "ask_user",
             description = "루프를 멈추고 사용자에게 질문한다. 한 호출에 하나만. " +
-                "kind=missing_info: 목표에 없는 필수 정보(수신자, 보낼 메시지 내용, 날짜, 도착역 등)를 묻는다(자유 텍스트 답). " +
-                "kind=confirm: 전송·결제·구매·가입완료·동의 등 되돌릴 수 없는 탭 직전에 승인/거절을 받는다. " +
+                "kind=missing_info: 필수 정보(수신자, 보낼 메시지 내용, 날짜, 도착역 등)가 없으면 추측하지 말고 묻는다(자유 텍스트 답). " +
+                "kind=confirm: 전화·전송·결제·구매·가입·동의 직전에 승인/거절을 받는다. " +
                 "목록 탭·스크롤·open_app·back에는 쓰지 않는다. 거절 시 tap_node하지 말고 finish로 종료. " +
                 "확인 후 실제 탭은 tap_node가 한다. ask_user는 finish가 아니다.",
             parameters = objectSchema(
@@ -86,7 +86,7 @@ object ToolRegistry {
         ),
         ToolDefinition(
             name = "finish",
-            description = "목표가 완료되었음을 선언하고 작업을 종료한다. summary는 사용자에게 읽을 1~2문장 한국어. 화면·검색 결과에 실제로 있는 내용만. 비우지 않는다.",
+            description = "목표가 완료되었음을 선언하고 작업을 종료한다. summary는 사용자에게 읽을 1~2문장 한국어. 확인된 내용만. 화면·검색 결과에 실제로 있는 내용만. 못 찾으면 못 찾았다고 말한다. 비우지 않는다.",
             parameters = objectSchema(
                 "summary" to stringProp("완료 요약 (1~2문장 한국어)"),
                 "reason" to reasonProp(),
