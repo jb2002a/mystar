@@ -8,7 +8,7 @@ import com.mystar.agent.EvalRunStore
 import com.mystar.agent.EvalTag
 import com.mystar.agent.EvalToolEntry
 import com.mystar.agent.StabilizeOutcome
-import com.mystar.agent.llm.CloudLlmClient
+import com.mystar.agent.llm.LlmClient
 import com.mystar.agent.llm.LlmResult
 import com.mystar.agent.tool.AppCatalog
 import com.mystar.agent.tool.ToolCall
@@ -34,7 +34,7 @@ import kotlinx.serialization.json.put
  * 현재 화면 트리: latestScreen으로 매 LLM 요청 끝에 단발 주입.
  */
 class ReactAgent(
-    private val llmClient: CloudLlmClient = CloudLlmClient(),
+    private val llmClient: LlmClient = LlmClient.create(),
     private val tracer: LangSmithClient = LangSmithClient.shared,
 ) {
     private val running = AtomicBoolean(false)
@@ -61,9 +61,7 @@ class ReactAgent(
         onEvent: (String) -> Unit = {},
         onFinishSummary: (String) -> Unit = {},
         onSpeakQuestion: suspend (String) -> Unit = {},
-        onAskUser: suspend (AskUserPrompt) -> AskUserAnswer = { prompt ->
-            askUserDefault(prompt, onSpeakQuestion)
-        },
+        onAskUser: (suspend (AskUserPrompt) -> AskUserAnswer)? = null,
         evalTag: EvalTag? = null,
     ): Boolean = mutex.withLock {
         if (!running.compareAndSet(false, true)) {
@@ -71,8 +69,11 @@ class ReactAgent(
             return false
         }
         stopRequested.set(false)
+        val resolvedAskUser: suspend (AskUserPrompt) -> AskUserAnswer = onAskUser ?: { prompt ->
+            askUserDefault(prompt, onSpeakQuestion)
+        }
         try {
-            execute(goal.trim(), onEvent, onFinishSummary, onSpeakQuestion, onAskUser, evalTag)
+            execute(goal.trim(), onEvent, onFinishSummary, onSpeakQuestion, resolvedAskUser, evalTag)
         } finally {
             running.set(false)
             stopRequested.set(false)

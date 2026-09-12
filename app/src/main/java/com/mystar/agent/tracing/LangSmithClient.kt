@@ -201,7 +201,58 @@ class LangSmithClient(
                 when (key) {
                     "content" -> put(key, sanitizeContent(value))
                     "tool_calls" -> put(key, sanitizeToolCalls(value))
+                    "parts" -> put(key, sanitizeGeminiParts(value))
                     else -> put(key, value)
+                }
+            }
+        }
+
+        private fun sanitizeGeminiParts(value: JsonElement): JsonElement {
+            val arr = value as? JsonArray ?: return value
+            return buildJsonArray {
+                for (item in arr) {
+                    when (val obj = item as? JsonObject) {
+                        null -> add(item)
+                        else -> add(
+                            buildJsonObject {
+                                for ((k, v) in obj) {
+                                    when (k) {
+                                        "functionCall" -> put(k, sanitizeGeminiFunctionCall(v))
+                                        "thoughtSignature" -> put(k, sanitizeThoughtSignature(v))
+                                        "text" -> put(k, sanitizeContent(v))
+                                        else -> put(k, v)
+                                    }
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
+        private fun sanitizeThoughtSignature(value: JsonElement): JsonElement {
+            if (value is JsonNull) return value
+            val text = value.jsonPrimitive.contentOrNull ?: return value
+            return if (text.length > 32) {
+                JsonPrimitive(text.take(32) + "…[truncated]")
+            } else {
+                value
+            }
+        }
+
+        private fun sanitizeGeminiFunctionCall(value: JsonElement): JsonElement {
+            val fc = value as? JsonObject ?: return value
+            val name = fc["name"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            return buildJsonObject {
+                for ((k, v) in fc) {
+                    if (k == "args" && name == "input_text") {
+                        put(k, buildJsonObject {
+                            put("node_id", "?")
+                            put("text", "[REDACTED]")
+                        })
+                    } else {
+                        put(k, v)
+                    }
                 }
             }
         }

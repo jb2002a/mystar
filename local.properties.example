@@ -2,8 +2,17 @@
 #
 # sdk.dir=C\:\\Users\\YOU\\AppData\\Local\\Android\\Sdk
 # LLM_API_KEY=sk-your-key-here
+#
+# --- OpenAI 호환 (GPT-4o, Claude, Gemini OpenAI-compat 등) ---
+# LLM_PROVIDER=openai_compat
 # LLM_BASE_URL=https://api.openai.com/v1
 # LLM_MODEL=gpt-4o-mini
+#
+# --- Gemini native generateContent ---
+# LLM_PROVIDER=gemini_native
+# LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta
+# LLM_MODEL=gemini-3.7-flash
+#
 # LLM_REASONING_EFFORT=none   # reasoning 모델(gpt-5.6-luna 등)에서만 설정. 비우면 미전송.
 # WEB_SEARCH_API_KEY=your-brave-search-api-key
 #

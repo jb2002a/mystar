@@ -16,6 +16,7 @@ val localProperties = Properties().apply {
 val llmApiKey: String = localProperties.getProperty("LLM_API_KEY", "")
 val llmBaseUrl: String = localProperties.getProperty("LLM_BASE_URL", "")
 val llmModel: String = localProperties.getProperty("LLM_MODEL", "")
+val llmProvider: String = localProperties.getProperty("LLM_PROVIDER", "openai_compat")
 val llmReasoningEffort: String = localProperties.getProperty("LLM_REASONING_EFFORT", "")
 val langsmithApiKey: String = localProperties.getProperty("LANGSMITH_API_KEY", "")
 val langsmithProject: String = localProperties.getProperty("LANGSMITH_PROJECT", "")
@@ -35,12 +36,13 @@ android {
         applicationId = "com.mystar.agent"
         minSdk = 24
         targetSdk = 35
-        versionCode = 34
-        versionName = "0.43"
+        versionCode = 38
+        versionName = "0.47"
 
         buildConfigField("String", "LLM_API_KEY", "\"${escapeBuildConfig(llmApiKey)}\"")
         buildConfigField("String", "LLM_BASE_URL", "\"${escapeBuildConfig(llmBaseUrl)}\"")
         buildConfigField("String", "LLM_MODEL", "\"${escapeBuildConfig(llmModel)}\"")
+        buildConfigField("String", "LLM_PROVIDER", "\"${escapeBuildConfig(llmProvider)}\"")
         buildConfigField(
             "String",
             "LLM_REASONING_EFFORT",

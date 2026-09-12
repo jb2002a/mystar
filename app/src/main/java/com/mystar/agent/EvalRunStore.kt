@@ -4,7 +4,7 @@ import android.content.Context
 import android.os.Build
 import android.util.Log
 import com.mystar.agent.agent.ReactAgent
-import com.mystar.agent.llm.CloudLlmClient
+import com.mystar.agent.llm.LlmPrompt
 import java.io.File
 import java.net.URI
 import java.text.SimpleDateFormat
@@ -79,6 +79,7 @@ object EvalRunStore {
     /** 모델별 단가 (USD per 1M tokens, 입력 to 출력). 출력 단가는 thinking 토큰 포함. */
     private val PRICES_PER_M = mapOf(
         "gemini-3-flash-preview" to (0.50 to 3.00),
+        "gemini-3.7-flash" to (0.75 to 3.75),
         "gpt-4o" to (2.50 to 10.00),
     )
 
@@ -184,9 +185,19 @@ object EvalRunStore {
             BuildConfig.LLM_REASONING_EFFORT.ifBlank { null }?.let { JsonPrimitive(it) } ?: JsonNull,
         )
         put("llm_host", llmHost()?.let { JsonPrimitive(it) } ?: JsonNull)
-        put("temperature", CloudLlmClient.TEMPERATURE)
+        put("llm_provider", BuildConfig.LLM_PROVIDER)
+        // gemini_native는 temperature를 아예 보내지 않는다(Gemini 3 기본값 1.0 유지 권장).
+        // 실제로 전송된 값만 기록 — 안 보냈으면 null.
+        put(
+            "temperature",
+            if (BuildConfig.LLM_PROVIDER.trim().lowercase() == "gemini_native") {
+                JsonNull
+            } else {
+                JsonPrimitive(LlmPrompt.TEMPERATURE)
+            },
+        )
         put("max_rounds", ReactAgent.MAX_ROUNDS)
-        put("system_prompt_sha", CloudLlmClient.systemPromptSha)
+        put("system_prompt_sha", LlmPrompt.systemPromptSha)
         put("app_version", BuildConfig.VERSION_NAME)
         put("app_version_code", BuildConfig.VERSION_CODE)
         put("device", Build.MODEL)
