@@ -1,0 +1,10 @@
+---
+description: 모든 답변은 한국어로 작성한다
+alwaysApply: true
+---
+
+# Language
+
+이 저장소에서 코드를 작성·리뷰·리팩터링할 때 항상 적용한다.
+
+**ALWAYS ANSWER IN KOREAN.**
