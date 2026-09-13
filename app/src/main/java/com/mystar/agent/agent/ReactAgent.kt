@@ -216,6 +216,7 @@ class ReactAgent(
             val initialAppCatalog = llmClient.buildInitialAppCatalogMessage(appCatalog)
             // val initialScreenContext = llmClient.buildInitialScreenContextMessage(initialTree)
             var latestScreen: String? = null
+            var consecutiveWaits = 0
 
             /** @return 평가 기록용 안정화 결과 라벨 */
             suspend fun refreshLatestScreen(): String {
@@ -301,19 +302,26 @@ class ReactAgent(
                 )
 
                 val toolStartedAt = SystemClock.elapsedRealtime()
-                val actionResult = when (toolCall.name) {
-                    "ask_user" -> executeAskUser(
+                val actionResult = when {
+                    toolCall.name == "ask_user" -> executeAskUser(
                         toolCall = toolCall,
                         onEvent = onEvent,
                         onSpeakQuestion = onSpeakQuestion,
                         onAskUser = onAskUser,
                         aborted = { stopRequested.get() },
                     )
+                    toolCall.name == "wait" && consecutiveWaits >= MAX_CONSECUTIVE_WAITS ->
+                        ToolResult(false, "wait를 더 이상 쓸 수 없다. 다른 도구로 진행한다.")
                     else -> withContext(
                         if (toolCall.name == "web_search") Dispatchers.IO else Dispatchers.Default,
                     ) {
                         ToolRegistry.execute(toolCall)
                     }
+                }
+                if (toolCall.name == "wait" && actionResult.success) {
+                    consecutiveWaits++
+                } else if (toolCall.name != "wait") {
+                    consecutiveWaits = 0
                 }
                 val toolMs = SystemClock.elapsedRealtime() - toolStartedAt
 
@@ -472,6 +480,7 @@ class ReactAgent(
         const val MAX_ROUNDS = 20
         const val DEFAULT_FINISH_SUMMARY = "작업을 마쳤습니다."
         const val ASK_USER_TIMEOUT_MS = 15_000L
+        private const val MAX_CONSECUTIVE_WAITS = 3
 
         private val NON_SCREEN_TOOLS = setOf("web_search")
 

@@ -13,7 +13,7 @@ import kotlinx.serialization.json.put
 
 object ToolRegistry {
 
-    private const val WAIT_DURATION_MS = 3_000L
+    private const val WAIT_DURATION_MS = 10_000L
 
     /** LLM에 노출하는 공개 도구 (M4: get_screen_info 제외). */
     val definitions: List<ToolDefinition> = listOf(
@@ -65,8 +65,8 @@ object ToolRegistry {
         ),
         ToolDefinition(
             name = "wait",
-            description = "필요한 화면 요소(로딩 중인 지도, 늦게 뜨는 목록/버튼 등)가 아직 안 보일 때 잠깐(3초) 기다린 뒤 화면을 다시 확인한다. " +
-                "이미 보이는 요소를 찾는 중이면 쓰지 않는다. 같은 화면에서 연속 2회 넘게 쓰지 않는다.",
+            description = "필요한 화면 요소(로딩 중인 지도, 늦게 뜨는 목록/버튼 등)가 아직 안 보일 때 기다린 뒤 화면을 다시 확인한다. " +
+                "이미 보이는 요소를 찾는 중이면 쓰지 않는다.",
             parameters = objectSchema(
                 "reason" to reasonProp(),
                 required = listOf("reason"),
