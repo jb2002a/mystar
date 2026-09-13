@@ -13,6 +13,8 @@ import kotlinx.serialization.json.put
 
 object ToolRegistry {
 
+    private const val WAIT_DURATION_MS = 3_000L
+
     /** LLM에 노출하는 공개 도구 (M4: get_screen_info 제외). */
     val definitions: List<ToolDefinition> = listOf(
         ToolDefinition(
@@ -62,6 +64,15 @@ object ToolRegistry {
             ),
         ),
         ToolDefinition(
+            name = "wait",
+            description = "필요한 화면 요소(로딩 중인 지도, 늦게 뜨는 목록/버튼 등)가 아직 안 보일 때 잠깐(3초) 기다린 뒤 화면을 다시 확인한다. " +
+                "이미 보이는 요소를 찾는 중이면 쓰지 않는다. 같은 화면에서 연속 2회 넘게 쓰지 않는다.",
+            parameters = objectSchema(
+                "reason" to reasonProp(),
+                required = listOf("reason"),
+            ),
+        ),
+        ToolDefinition(
             name = "web_search",
             description = "웹 조회용. 시세·사실 등 웹 정보를 가져온다. 구글/크롬을 open_app으로 열지 않는다. 그 검색 화면을 조작해야 할 때만 브라우저를 연다. 실패 시 브라우저를 열지 말고 finish로 알린다. 카톡 친구·설정 항목 등 앱 안 검색에는 쓰지 않는다.",
             parameters = objectSchema(
@@ -108,6 +119,7 @@ object ToolRegistry {
             "input_text" -> executeInputText(call.args)
             "back" -> executeBack(call.args)
             "scroll" -> executeScroll(call.args)
+            "wait" -> executeWait(call.args)
             "web_search" -> executeWebSearch(call.args)
             "ask_user" -> executeAskUser(call.args)
             "finish" -> executeFinish(call.args)
@@ -197,6 +209,11 @@ object ToolRegistry {
         } else {
             ToolResult(false, "scroll($nodeId, $direction) 실패 (scroll 마크 없음 또는 스크롤 불가)")
         }
+    }
+
+    private fun executeWait(@Suppress("UNUSED_PARAMETER") args: JsonObject): ToolResult {
+        Thread.sleep(WAIT_DURATION_MS)
+        return ToolResult(true, "wait(${WAIT_DURATION_MS}ms) OK")
     }
 
     private fun executeWebSearch(args: JsonObject): ToolResult {
