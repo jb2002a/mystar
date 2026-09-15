@@ -162,6 +162,7 @@ class ReactAgent(
                     round = round,
                     name = toolCall.name,
                     reason = reason,
+                    thoughts = llmResult.thoughts,
                     args = toolCall.args,
                     ok = actionResult.success,
                     result = actionResult.message,

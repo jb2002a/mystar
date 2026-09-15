@@ -12,6 +12,8 @@ sealed class LlmResult {
         val outputTokens: Int? = null,
         /** 응답 usage.total_tokens. Gemini는 thinking 토큰이 여기에만 포함될 수 있다. */
         val totalTokens: Int? = null,
+        /** 사고 요약 (Gemini includeThoughts). 평가 기록용, 히스토리에는 넣지 않는다. */
+        val thoughts: String? = null,
     ) : LlmResult()
 
     data class Failure(

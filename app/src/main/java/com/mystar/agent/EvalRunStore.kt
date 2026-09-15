@@ -26,6 +26,8 @@ data class EvalToolEntry(
     val round: Int,
     val name: String,
     val reason: String?,
+    /** LLM 사고 요약 (Gemini includeThoughts). 제공되지 않으면 null. */
+    val thoughts: String?,
     /** LLM이 보낸 원본 인자 (마스킹 없음). */
     val args: JsonObject,
     val ok: Boolean,
@@ -149,6 +151,10 @@ object EvalRunStore {
                                     put(
                                         "reason",
                                         tool.reason?.let { JsonPrimitive(it) } ?: JsonNull,
+                                    )
+                                    put(
+                                        "thoughts",
+                                        tool.thoughts?.let { JsonPrimitive(it) } ?: JsonNull,
                                     )
                                     put("args", tool.args)
                                     put("ok", tool.ok)

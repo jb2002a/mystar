@@ -15,6 +15,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
@@ -331,6 +332,18 @@ class GeminiNativeClient(
             )
             // temperature는 보내지 않는다. Google 권장: Gemini 3는 기본값(1.0) 유지,
             // 1.0 미만으로 낮추면 looping·성능 저하가 생길 수 있음.
+            // 평가 기록용: 사고 요약(thought part)을 응답에 포함시킨다.
+            put(
+                "generationConfig",
+                buildJsonObject {
+                    put(
+                        "thinkingConfig",
+                        buildJsonObject {
+                            put("includeThoughts", true)
+                        },
+                    )
+                },
+            )
         }
     }
 
@@ -470,6 +483,13 @@ class GeminiNativeClient(
         val parts = content["parts"]?.jsonArray
             ?: return LlmResult.Failure("parts 없음")
 
+        val thoughts = parts
+            .map { it.jsonObject }
+            .filter { it["thought"]?.jsonPrimitive?.booleanOrNull == true }
+            .mapNotNull { it["text"]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf { t -> t.isNotEmpty() } }
+            .joinToString("\n\n")
+            .takeIf { it.isNotEmpty() }
+
         for (part in parts) {
             val fc = part.jsonObject["functionCall"]?.jsonObject ?: continue
             val name = fc["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
@@ -493,6 +513,7 @@ class GeminiNativeClient(
             return LlmResult.Success(
                 toolCall = ToolCall(name = name, args = args, id = id),
                 assistantMessage = assistantMessage,
+                thoughts = thoughts,
             )
         }
 
