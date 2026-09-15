@@ -312,6 +312,9 @@ class ReactAgent(
                     )
                     toolCall.name == "wait" && consecutiveWaits >= MAX_CONSECUTIVE_WAITS ->
                         ToolResult(false, "wait를 더 이상 쓸 수 없다. 다른 도구로 진행한다.")
+                    toolCall.name == "wait" -> withContext(Dispatchers.Default) {
+                        ToolRegistry.executeWait(ToolRegistry.WAIT_DURATION_MS)
+                    }
                     else -> withContext(
                         if (toolCall.name == "web_search") Dispatchers.IO else Dispatchers.Default,
                     ) {
@@ -480,7 +483,7 @@ class ReactAgent(
         const val MAX_ROUNDS = 20
         const val DEFAULT_FINISH_SUMMARY = "작업을 마쳤습니다."
         const val ASK_USER_TIMEOUT_MS = 15_000L
-        private const val MAX_CONSECUTIVE_WAITS = 3
+        private const val MAX_CONSECUTIVE_WAITS = 10
 
         private val NON_SCREEN_TOOLS = setOf("web_search")
 

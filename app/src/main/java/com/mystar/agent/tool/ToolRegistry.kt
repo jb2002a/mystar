@@ -13,7 +13,7 @@ import kotlinx.serialization.json.put
 
 object ToolRegistry {
 
-    private const val WAIT_DURATION_MS = 10_000L
+    const val WAIT_DURATION_MS = 3_000L
 
     /** LLM에 노출하는 공개 도구 (M4: get_screen_info 제외). */
     val definitions: List<ToolDefinition> = listOf(
@@ -119,7 +119,7 @@ object ToolRegistry {
             "input_text" -> executeInputText(call.args)
             "back" -> executeBack(call.args)
             "scroll" -> executeScroll(call.args)
-            "wait" -> executeWait(call.args)
+            "wait" -> executeWait(WAIT_DURATION_MS)
             "web_search" -> executeWebSearch(call.args)
             "ask_user" -> executeAskUser(call.args)
             "finish" -> executeFinish(call.args)
@@ -211,9 +211,9 @@ object ToolRegistry {
         }
     }
 
-    private fun executeWait(@Suppress("UNUSED_PARAMETER") args: JsonObject): ToolResult {
-        Thread.sleep(WAIT_DURATION_MS)
-        return ToolResult(true, "wait(${WAIT_DURATION_MS}ms) OK")
+    fun executeWait(durationMs: Long): ToolResult {
+        Thread.sleep(durationMs)
+        return ToolResult(true, "wait(${durationMs}ms) OK")
     }
 
     private fun executeWebSearch(args: JsonObject): ToolResult {
