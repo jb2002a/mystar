@@ -10,6 +10,7 @@ import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.Point
 import android.graphics.Rect
+import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
@@ -17,6 +18,7 @@ import android.view.Gravity
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.Button
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -399,6 +401,100 @@ class AgentAccessibilityService : AccessibilityService() {
         } finally {
             target.recycle()
         }
+    }
+
+    /**
+     * API 30+: 포커스된 입력창에 ACTION_IME_ENTER.
+     * API 29-: 삼성 천지인 돋보기(검색) 좌표 탭.
+     * @return null이면 성공, 아니면 실패 메시지.
+     */
+    fun pressEnter(): String? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            pressEnterImeAction()
+        } else {
+            pressEnterSearchKeyTap()
+        }
+    }
+
+    private fun pressEnterImeAction(): String? {
+        val target = waitForFocusedEditable()
+        if (target == null) {
+            ServiceStatus.appendLog("pressEnter: 포커스된 입력 필드 없음")
+            Log.w(TAG, "pressEnter: no focused editable")
+            return "press_enter 실패: 포커스된 입력 필드 없음"
+        }
+        return try {
+            target.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+            val ok = target.performAction(
+                AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id,
+            )
+            if (ok) {
+                ServiceStatus.appendLog("pressEnter: OK (ime action)")
+                Log.i(TAG, "pressEnter: OK (ime action)")
+                null
+            } else {
+                ServiceStatus.appendLog("pressEnter: ACTION_IME_ENTER 실패")
+                Log.w(TAG, "pressEnter: ACTION_IME_ENTER failed")
+                "press_enter 실패: IME 엔터 불가"
+            }
+        } finally {
+            target.recycle()
+        }
+    }
+
+    private fun pressEnterSearchKeyTap(): String? {
+        val windowList = windows
+        if (windowList.isNullOrEmpty()) {
+            ServiceStatus.appendLog("pressEnter: windows 비어 있음")
+            Log.w(TAG, "pressEnter: windows empty")
+            return "press_enter 실패: 키보드 창 없음"
+        }
+        try {
+            val ime = windowList.firstOrNull {
+                it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD
+            }
+            if (ime == null) {
+                ServiceStatus.appendLog("pressEnter: TYPE_INPUT_METHOD 창 없음")
+                Log.w(TAG, "pressEnter: no TYPE_INPUT_METHOD window")
+                return "press_enter 실패: 키보드 창 없음"
+            }
+            return if (tapImeSearchKey(ime)) {
+                null
+            } else {
+                "press_enter 실패: IME 검색 키 탭 실패"
+            }
+        } finally {
+            for (window in windowList) {
+                window.recycle()
+            }
+        }
+    }
+
+    /**
+     * 삼성 천지인 임시: 돋보기(검색)는 툴바 아래 4열 중 오른쪽 2번째 줄.
+     * 오른쪽 아래는 '-' 키라 쓰지 않는다.
+     */
+    private fun tapImeSearchKey(window: AccessibilityWindowInfo): Boolean {
+        val bounds = Rect()
+        window.getBoundsInScreen(bounds)
+        if (bounds.isEmpty) {
+            ServiceStatus.appendLog("pressEnter: IME bounds 없음")
+            Log.w(TAG, "pressEnter: empty IME bounds")
+            return false
+        }
+        val x = bounds.right - (bounds.width() * IME_SEARCH_X_FROM_RIGHT).toInt()
+        val y = bounds.top + (bounds.height() * IME_SEARCH_Y_FROM_TOP).toInt()
+        ServiceStatus.appendLog("pressEnter: IME bounds=${bounds.toShortString()} tap=($x,$y)")
+        Log.i(TAG, "pressEnter: IME search tap ($x,$y)")
+        val ok = performTap(x, y)
+        if (ok) {
+            ServiceStatus.appendLog("pressEnter: OK ($x,$y)")
+            Log.i(TAG, "pressEnter: OK ($x,$y)")
+        } else {
+            ServiceStatus.appendLog("pressEnter: 탭 실패 ($x,$y)")
+            Log.w(TAG, "pressEnter: tap failed ($x,$y)")
+        }
+        return ok
     }
 
     /** M7: 시스템 뒤로가기. */
@@ -882,6 +978,10 @@ class AgentAccessibilityService : AccessibilityService() {
         private const val RETRY_SLEEP_MS = 200L
         private const val SCROLL_SWIPE_DELTA_PX = 150
         private const val SCROLL_SWIPE_DURATION_MS = 250L
+        /** 삼성 천지인 4열: 오른쪽 열 중앙. */
+        private const val IME_SEARCH_X_FROM_RIGHT = 0.125f
+        /** 툴바 + 키 1.5줄. 돋보기는 2번째 키 줄. */
+        private const val IME_SEARCH_Y_FROM_TOP = 0.48f
         const val STABILIZE_POLL_MS = 200L
         const val STABILIZE_MATCH_COUNT = 4
         const val HARD_TIMEOUT_MS = 15_000L

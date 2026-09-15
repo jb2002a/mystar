@@ -23,6 +23,7 @@ object LlmPrompt {
 - 웹 조회는 web_search. 그 검색 화면을 조작해야 할 때만 브라우저를 연다.
 - 필요한 요소가 로딩 중이라 안 보이면 바로 포기하거나 다른 방법으로 새지 말고 wait로 기다렸다 다시 확인한다.
 - 메세지/카카오톡 등에서는 사용자가 입력한 문장 그대로 보낸다.
+- 검색창 제출은 press_enter. 전송·전화는 ask_user(confirm) 후 tap_node.
 - 앱 전환은 back이 아니라 open_app.
 """.trimIndent()
 

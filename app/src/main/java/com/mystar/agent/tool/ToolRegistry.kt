@@ -46,6 +46,15 @@ object ToolRegistry {
             ),
         ),
         ToolDefinition(
+            name = "press_enter",
+            description = "포커스된 입력창에 키보드 엔터(검색/완료)를 보낸다. input_text 직후 검색 제출에 쓴다. " +
+                "화면에 검색·전송 버튼이 보이면 tap_node를 쓴다. 메시지 전송에는 쓰지 않는다.",
+            parameters = objectSchema(
+                "reason" to reasonProp(),
+                required = listOf("reason"),
+            ),
+        ),
+        ToolDefinition(
             name = "back",
             description = "시스템 뒤로가기로 현재 앱 화면을 한 단계 되돌린다. 잘못된 하위 화면·다이얼로그에서만. 메인·탭·홈처럼 최상위면 back하지 않는다.",
             parameters = objectSchema(
@@ -87,7 +96,7 @@ object ToolRegistry {
             description = "루프를 멈추고 사용자에게 질문한다. 한 호출에 하나만. " +
                 "kind=missing_info: 필수 정보(수신자, 보낼 메시지 내용, 날짜, 도착역 등)가 없으면 추측하지 말고 묻는다(자유 텍스트 답). " +
                 "kind=confirm: 전화·전송·결제·구매·가입·동의 직전에 승인/거절을 받는다. " +
-                "목록 탭·스크롤·open_app·back에는 쓰지 않는다. 거절 시 tap_node하지 말고 finish로 종료. " +
+                "목록 탭·스크롤·open_app·back·press_enter에는 쓰지 않는다. 거절 시 tap_node하지 말고 finish로 종료. " +
                 "확인 후 실제 탭은 tap_node가 한다. ask_user는 finish가 아니다.",
             parameters = objectSchema(
                 "question" to stringProp("사용자에게 읽을 한두 문장 질문. 트리 원문을 넣지 않는다"),
@@ -118,6 +127,7 @@ object ToolRegistry {
             "open_app" -> executeOpenApp(call.args)
             "tap_node" -> executeTapNode(call.args)
             "input_text" -> executeInputText(call.args)
+            "press_enter" -> executePressEnter(call.args)
             "back" -> executeBack(call.args)
             "scroll" -> executeScroll(call.args)
             "wait" -> executeWait(WAIT_DURATION_MS)
@@ -180,6 +190,17 @@ object ToolRegistry {
             ToolResult(true, "input_text($nodeId) OK")
         } else {
             ToolResult(false, "input_text($nodeId) 실패")
+        }
+    }
+
+    private fun executePressEnter(@Suppress("UNUSED_PARAMETER") args: JsonObject): ToolResult {
+        val service = AgentAccessibilityService.instance
+            ?: return ToolResult(false, "접근성 서비스 미연결")
+        val error = service.pressEnter()
+        return if (error == null) {
+            ToolResult(true, "press_enter OK")
+        } else {
+            ToolResult(false, error)
         }
     }
 
