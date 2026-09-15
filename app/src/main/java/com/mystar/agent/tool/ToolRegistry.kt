@@ -66,6 +66,7 @@ object ToolRegistry {
         ToolDefinition(
             name = "wait",
             description = "필요한 화면 요소(로딩 중인 지도, 늦게 뜨는 목록/버튼 등)가 아직 안 보일 때 기다린 뒤 화면을 다시 확인한다. " +
+                "한 번에 안 뜨면 연속 호출한다. 화면 무변화는 실패가 아니다. " +
                 "이미 보이는 요소를 찾는 중이면 쓰지 않는다.",
             parameters = objectSchema(
                 "reason" to reasonProp(),
@@ -213,7 +214,10 @@ object ToolRegistry {
 
     fun executeWait(durationMs: Long): ToolResult {
         Thread.sleep(durationMs)
-        return ToolResult(true, "wait(${durationMs}ms) OK")
+        return ToolResult(
+            true,
+            "wait(${durationMs}ms) OK. 화면이 그대로여도 정상. 필요한 요소가 아직 없으면 wait를 다시 쓴다.",
+        )
     }
 
     private fun executeWebSearch(args: JsonObject): ToolResult {
