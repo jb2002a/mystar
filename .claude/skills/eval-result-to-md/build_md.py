@@ -32,13 +32,25 @@ OUT_DIR = os.path.join(REPO_ROOT, "docs", "evaluation", "result", "device", "fil
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("model", help="기록용/초기AB테스트/ 하위 모델 폴더명 (예: gemini-3-flash-preview)")
+    ap.add_argument("model", nargs="?", default=None, help="기록용/초기AB테스트/ 하위 모델 폴더명 (예: gemini-3-flash-preview)")
+    ap.add_argument("--src-dir", default=None, help="json이 있는 폴더 경로 (--src-dir 사용 시 model 생략 가능)")
+    ap.add_argument("--title", default=None, help="리포트 제목. 생략 시 model 또는 src-dir 폴더명")
     ap.add_argument("--queue-id", default=None, help="정식 배치로 취급할 queue_id. 생략 시 가장 많이 등장하는 queue_id를 자동 선택")
     ap.add_argument("--out", default=None, help="출력 md 경로. 생략 시 eval/<model>.md")
     args = ap.parse_args()
 
-    src_dir = os.path.join(BASE_DIR, args.model)
-    if not os.path.isdir(src_dir):
+    if args.src_dir:
+        src_dir = os.path.abspath(args.src_dir)
+        if not os.path.isdir(src_dir):
+            raise SystemExit(f"소스 폴더를 찾을 수 없음: {src_dir}")
+        report_name = args.title or os.path.basename(src_dir.rstrip(os.sep))
+    elif args.model:
+        src_dir = os.path.join(BASE_DIR, args.model)
+        report_name = args.title or args.model
+    else:
+        raise SystemExit("model 또는 --src-dir 중 하나를 지정하세요.")
+
+    if not args.src_dir and not os.path.isdir(src_dir):
         # 쉘에 괄호/한글이 섞인 폴더명을 직접 넘기기 까다로운 경우를 위한 부분일치 폴백
         # (예: "4o" -> "구버전(4o)")
         candidates = [
@@ -53,7 +65,7 @@ def main():
         else:
             raise SystemExit(f"모델 폴더를 찾을 수 없음: {src_dir}")
 
-    safe_name = re.sub(r"[()]", "", args.model)
+    safe_name = re.sub(r"[()]", "", report_name)
     out_path = args.out or os.path.join(OUT_DIR, f"{safe_name}.md")
 
     files = sorted(glob.glob(os.path.join(src_dir, "*.json")))
@@ -85,7 +97,7 @@ def main():
         tasks[ti].sort(key=lambda d: d["attempt"])
 
     lines = []
-    lines.append(f"# {args.model} 결과 정리\n")
+    lines.append(f"# {report_name} 결과 정리\n")
     lines.append("| # | Task | 소요시간(s) | 라운드 | 총 토큰/금액$ |")
     lines.append("|---|------|------------|--------|--------------|")
 
