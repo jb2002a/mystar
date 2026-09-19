@@ -23,6 +23,46 @@ def round_time_suffix(t):
     round_s = (t.get("llm_ms", 0) + t.get("tool_ms", 0)) / 1000
     return f" ({round_s:.1f}s)"
 
+
+# reason은 줄 본문에, finish summary는 판정 카드에 있으므로 args에서 뺀다.
+_ARG_KEYS = ("package", "node_id", "text", "query", "direction")
+
+
+def format_tool_args(t):
+    args = t.get("args") or {}
+    parts = []
+    for key in _ARG_KEYS:
+        val = args.get(key)
+        if val is None or val == "":
+            continue
+        if key in ("text", "query"):
+            parts.append(f'"{val}"')
+        else:
+            parts.append(f"`{val}`")
+    return (" " + " ".join(parts)) if parts else ""
+
+
+def fence(text):
+    return f"```\n{text.rstrip()}\n```"
+
+
+def format_judgment_card(d):
+    summary = d.get("finish_summary")
+    summary_s = f'"{summary}"' if summary else "(없음)"
+    pkg = d.get("final_package")
+    pkg_s = f"`{pkg}`" if pkg else "(없음)"
+    screen = d.get("final_screen")
+    lines = [
+        f"- **finish_summary:** {summary_s}",
+        f"- **final_package:** {pkg_s}",
+    ]
+    if screen:
+        lines.append("- **final_screen:**")
+        lines.append(fence(screen))
+    else:
+        lines.append("- **final_screen:** (없음)")
+    return "\n".join(lines)
+
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 BASE_DIR = os.path.join(
     REPO_ROOT, "docs", "evaluation", "result", "device", "files", "기록용", "초기AB테스트"
@@ -127,6 +167,7 @@ def main():
                 header += f", 🙋 HITL {hitl_n}회"
             header += ")"
             flow_lines.append(header)
+            flow_lines.append(format_judgment_card(d))
 
             tools = d["tools"]
             for idx, t in enumerate(tools):
@@ -142,16 +183,19 @@ def main():
                     )
                     flow_lines.append(line)
                     continue
-                line = f"{t['round']}. `{t['name']}` — {reason}{round_time_suffix(t)}"
+                line = (
+                    f"{t['round']}. `{t['name']}`{format_tool_args(t)} — "
+                    f"{reason}{round_time_suffix(t)}"
+                )
                 ok = t.get("ok", True)
                 settle = t.get("settle")
+                cur_screen = t.get("screen")
                 if not ok:
                     line += f" → ❌ 실패: {t.get('result', '')}"
                     # 실패한 이 액션을 결정할 때 실제로 본 화면(이 tool 자신의 screen)에
                     # 해당 node_id가 있었는지 대조 -> LLM 환각(없는 id) vs 타이밍/화면갱신 이슈 구분
                     node_id = t.get("args", {}).get("node_id")
                     if node_id:
-                        cur_screen = t.get("screen")
                         if cur_screen is None:
                             line += " [해당 화면 기록 없음 — 판단 불가]"
                         elif f"[{node_id}]" in cur_screen:
@@ -161,10 +205,9 @@ def main():
                 elif settle not in (None, "matched"):
                     line += f" → ⚠️ {settle}: {t.get('result', '')}"
                 flow_lines.append(line)
-                if t["name"] == "finish" and d.get("finish_summary"):
-                    # 결과 텍스트(finish_summary): 원본 json을 다시 열지 않아도 flow만
-                    # 보고 판단할 수 있게 finish 바로 아래에 표시
-                    flow_lines.append(f"    - **결과**: \"{d['finish_summary']}\"")
+                # 성공 라운드 화면·thoughts는 넣지 않는다. 실패 라운드만 당시 화면을 붙인다.
+                if not ok and cur_screen:
+                    flow_lines.append(fence(cur_screen))
         flow_sections.append("\n".join(flow_lines))
 
     lines.append("")

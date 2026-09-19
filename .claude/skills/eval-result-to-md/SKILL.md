@@ -32,10 +32,15 @@ python .claude/skills/eval-result-to-md/build_md.py <model_dir_name>
    - 총 토큰/금액$ ← `tokens_total`(`$cost_usd`)
    - 표에 결과 열은 넣지 않는다 (성공/실패 판단은 flow 상세 아래에 사람이 적음)
 3. **flow는 표 아래 별도 섹션**(`## flow 상세`)에 task별로, attempt별로 나눠서 작성.
-   tool 호출을 `{round}. \`{name}\` — {reason} ({round_s}s)` 형식으로 나열하되, 단순 나열이 아니라
-   **왜 실패했는지까지 표시**한다. `{round_s}`는 그 라운드에 소모된 시간(`llm_ms + tool_ms`, 초 단위
-   소수 첫째자리)이다. 구버전 기록처럼 `llm_ms`/`tool_ms` 필드 자체가 없으면 `(0.0s)`로 잘못
-   표시하지 말고 시간 표시를 생략한다:
+   attempt 헤더 바로 아래에 **판정 카드**를 둔다. JSON을 다시 열지 않고 pass/fail을 보게 하기 위함.
+   - `finish_summary` (에이전트 자기 보고. 행동형·이동형은 화면으로 확인할 것)
+   - `final_package`
+   - `final_screen` (없으면 `(없음)`)
+   tool 호출을 `{round}. \`{name}\` {args} — {reason} ({round_s}s)` 형식으로 나열하되, 단순 나열이 아니라
+   **왜 실패했는지까지 표시**한다. `{args}`는 `reason`/`summary`를 제외한 실제 인자
+   (`package`, `node_id`, `text`, `query`, `direction`). `{round_s}`는 그 라운드에 소모된
+   시간(`llm_ms + tool_ms`, 초 단위 소수 첫째자리)이다. 구버전 기록처럼 `llm_ms`/`tool_ms`
+   필드 자체가 없으면 `(0.0s)`로 잘못 표시하지 말고 시간 표시를 생략한다:
    - `ok: false`면 → `❌ 실패: {result}` (result에 실패 사유 텍스트가 들어있음, 예:
      "존재하지 않는 id 또는 제스처 실패"). `node_id`가 있는 액션(`tap_node` 등)이면
      **그 실패한 tool 자신의 `screen` 텍스트에 그 `node_id`(`[nXX]` 패턴)가 실제로 있었는지 대조**해서
@@ -46,6 +51,8 @@ python .claude/skills/eval-result-to-md/build_md.py <model_dir_name>
      - 없었으면 → `[해당 화면에 id 없음 → LLM이 없는 id를 지어낸 것으로 추정]`
        (LLM 환각 케이스 — 이게 나오면 모델 추론 문제로 분류)
      - 그 tool 자신에게 기록된 screen이 없으면(1라운드째 실패 등) → `[해당 화면 기록 없음 — 판단 불가]`
+     - `ok: false`이고 그 tool에 `screen`이 있으면 코드 블록으로 그 화면을 붙인다.
+       성공 라운드 화면과 `thoughts`는 넣지 않는다.
    - `ok: true`인데 `settle`이 `null`/`"matched"`가 아니면(예: `"hard timeout"`) →
      `⚠️ {settle}: {result}`. `hard timeout`은 액션 자체는 성공했지만 이후 화면이
      10초 안에 안정되지 않아 강제로 다음 단계로 넘어갔다는 뜻(`AgentAccessibilityService.kt`의
@@ -56,10 +63,9 @@ python .claude/skills/eval-result-to-md/build_md.py <model_dir_name>
      응답을 못 받으면 result가 "60초 동안 응답 없음..." 형태로 남는데, 같은 질문이
      반복되면(재시도 루프) 문제군 후보로 바로 눈에 띔. attempt 헤더에는 실제 사용자가
      응답한 횟수(`hitl_count`, 실패한 시도는 미포함)를 `HITL N회`로 함께 표시.
-   - `name == "finish"`면 그 줄 바로 아래에 `finish_summary`를 `- **결과**: "{finish_summary}"`로
-     들여써서 보여준다 (원본 json을 다시 안 열어도 flow만 보고 판단할 수 있게). finish_summary는
-     agent의 자기 보고일 뿐이므로, 실제로 맞는 답인지는 이 텍스트를 사람이 직접 판단해야 함 —
-     스텝이 다 성공해도 답이 틀렸을 수 있음.
+   - `finish_summary`는 finish 줄이 아니라 attempt 판정 카드에 한 번만 둔다.
+     agent의 자기 보고일 뿐이므로, 실제로 맞는 답인지는 이 텍스트와 `final_screen`을 사람이
+     직접 판단해야 함 — 스텝이 다 성공해도 답이 틀렸을 수 있음.
 
 ## 참고
 
