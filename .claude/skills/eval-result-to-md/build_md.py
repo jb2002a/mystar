@@ -123,6 +123,7 @@ def judge_payload(d, spec):
         screen = screen[:6000] + "\n…(truncated)"
     return {
         "task": d.get("task") or "",
+        "ts": d.get("ts") or "",
         "kind": spec["kind"],
         "criterion": spec["criterion"],
         "finish_summary": d.get("finish_summary") or "",
@@ -143,6 +144,7 @@ def build_judge_prompt(payload):
     return f"""너는 Android 에이전트 런의 성공 여부를 판정한다.
 
 태스크: {payload['task']}
+실행 시각: {payload['ts'] or '(없음)'}
 유형: {payload['kind']}
 성공 기준: {payload['criterion']}
 
@@ -151,6 +153,9 @@ def build_judge_prompt(payload):
 finish_summary의 주장("보냈습니다")을 행동형·이동형에서 그대로 믿지 마라. 화면·패키지로 확인하라.
 정보형은 답이 finish_summary에 있다.
 성공 기준이 confirm을 요구하면 ask_user(confirm)이 있어야 한다.
+태스크·성공 기준에 "지금", "현재", "영업 중" 등 실행 시각 기준 조건이 있으면 실행 시각을 기준으로 판정하라.
+제시된 운영시간이 실행 시각을 포함하지 않으면 fail이다.
+"실시간 여부는 별도로 확인하라" 등 확인을 유보하는 답은 "지금 영업 중" 근거로 치지 않는다.
 
 finish_summary: {payload['finish_summary'] or '(없음)'}
 final_package: {payload['final_package'] or '(없음)'}
