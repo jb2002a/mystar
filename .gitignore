@@ -47,3 +47,4 @@ Thumbs.db
 # Evaluation: device-pulled artifacts
 docs/evaluation/result/device/files/**/*.zip
 docs/evaluation/result/device/eval.tar
+docs/evaluation/.judge_cache.json

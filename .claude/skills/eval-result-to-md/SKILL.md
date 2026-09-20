@@ -19,6 +19,8 @@ python .claude/skills/eval-result-to-md/build_md.py <model_dir_name>
     부분 문자열(예: `4o`)만 넘겨도 자동으로 유일하게 일치하는 폴더를 찾아 사용한다.
 - 출력: `docs/evaluation/result/device/files/eval/<model_dir_name>.md` (파일명에서 괄호는 제거)
 - 필요시 `--queue-id ID`로 정식 배치를 직접 지정, `--out PATH`로 출력 경로 지정 가능
+- `--golden PATH`로 성공 기준 md를 바꿀 수 있다. 기본은 `docs/evaluation/set_D0.md`
+- 성공 판정은 `local.properties`의 LLM으로 한다. 캐시는 `docs/evaluation/.judge_cache.json`. `--no-judge`면 판정을 건너뛴다
 - 구버전 기록처럼 `tokens_total` 필드가 없으면 `tokens_in + tokens_out`으로 자동 계산
 
 ## 동작 방식 (확정된 규칙)
@@ -27,49 +29,29 @@ python .claude/skills/eval-result-to-md/build_md.py <model_dir_name>
    (예: 정식 배치 전에 실행한 단발 테스트). 파일 수가 가장 많은 queue_id를 "정식 배치"로 자동
    선택하고, 나머지는 제외한다. 애매하면 실행 로그의 "제외된 파일" 목록을 사용자에게 보여줄 것.
 2. **표는 task당 1행**. attempt(a1/a2/a3...)는 `a1: x / a2: y / a3: z` 형식으로 한 셀에 요약.
+   - 성공 ← LLM judge (`set_D0.md` 성공 기준 + `final_screen` / `final_package` / `finish_summary` / `ask_user(confirm)`). `pass` | `fail`
+   - RRR ← 사람 최단 스텝 / `tools[]` 길이. **성공한 런만**. 실패는 `—`
+   - 초과 스텝 ← 에이전트 스텝 − 사람 스텝. 성공한 런만
    - 소요시간(s) ← `elapsed_s`
    - 라운드 ← `rounds`
    - 총 토큰/금액$ ← `tokens_total`(`$cost_usd`)
-   - 표에 결과 열은 넣지 않는다 (성공/실패 판단은 flow 상세 아래에 사람이 적음)
+   - 표 위에 전체 성공률, pass@k, pass^k, RRR(micro, 성공 런), 평균 초과 스텝을 한 줄로 적는다
 3. **flow는 표 아래 별도 섹션**(`## flow 상세`)에 task별로, attempt별로 나눠서 작성.
-   attempt 헤더 바로 아래에 **판정 카드**를 둔다. JSON을 다시 열지 않고 pass/fail을 보게 하기 위함.
-   - `finish_summary` (에이전트 자기 보고. 행동형·이동형은 화면으로 확인할 것)
+   attempt마다 아래만 적는다. 실패 추정, HITL 강조, settle 경고, 중간 화면은 넣지 않는다.
+   - `verdict` / `verdict_evidence` (judge)
+   - `RRR` (성공 런만. 실패는 `—`)
+   - `finish_summary`
    - `final_package`
    - `final_screen` (없으면 `(없음)`)
-   tool 호출을 `{round}. \`{name}\` {args} — {reason} ({round_s}s)` 형식으로 나열하되, 단순 나열이 아니라
-   **왜 실패했는지까지 표시**한다. `{args}`는 `reason`/`summary`를 제외한 실제 인자
-   (`package`, `node_id`, `text`, `query`, `direction`). `{round_s}`는 그 라운드에 소모된
-   시간(`llm_ms + tool_ms`, 초 단위 소수 첫째자리)이다. 구버전 기록처럼 `llm_ms`/`tool_ms`
-   필드 자체가 없으면 `(0.0s)`로 잘못 표시하지 말고 시간 표시를 생략한다:
-   - `ok: false`면 → `❌ 실패: {result}` (result에 실패 사유 텍스트가 들어있음, 예:
-     "존재하지 않는 id 또는 제스처 실패"). `node_id`가 있는 액션(`tap_node` 등)이면
-     **그 실패한 tool 자신의 `screen` 텍스트에 그 `node_id`(`[nXX]` 패턴)가 실제로 있었는지 대조**해서
-     추가로 표시한다(`screen`은 "그 라운드의 액션을 결정할 때 모델이 실제로 본 화면"이므로,
-     한 라운드 전 tool의 screen이 아니라 실패한 tool 자신의 screen을 봐야 함):
-     - 있었으면 → `[해당 화면엔 id 존재 → 타이밍/화면갱신 이슈로 추정]`
-       (LLM 판단은 맞았는데 탭 제스처나 화면 갱신 타이밍이 실패한 케이스)
-     - 없었으면 → `[해당 화면에 id 없음 → LLM이 없는 id를 지어낸 것으로 추정]`
-       (LLM 환각 케이스 — 이게 나오면 모델 추론 문제로 분류)
-     - 그 tool 자신에게 기록된 screen이 없으면(1라운드째 실패 등) → `[해당 화면 기록 없음 — 판단 불가]`
-     - `ok: false`이고 그 tool에 `screen`이 있으면 코드 블록으로 그 화면을 붙인다.
-       성공 라운드 화면과 `thoughts`는 넣지 않는다.
-   - `ok: true`인데 `settle`이 `null`/`"matched"`가 아니면(예: `"hard timeout"`) →
-     `⚠️ {settle}: {result}`. `hard timeout`은 액션 자체는 성공했지만 이후 화면이
-     10초 안에 안정되지 않아 강제로 다음 단계로 넘어갔다는 뜻(`AgentAccessibilityService.kt`의
-     `waitForUiSettle`, `HARD_TIMEOUT_MS = 10_000L`). task 실패는 아니지만 `elapsed_s`를
-     크게 늘리는 원인.
-   - `name == "ask_user"`면(HITL 개입) → `🙋 **\`ask_user\`(HITL)**`로 표시하고
-     질문(`args.question`, `args.kind`)과 결과(`result`)를 하위 줄에 별도로 보여준다.
-     응답을 못 받으면 result가 "60초 동안 응답 없음..." 형태로 남는데, 같은 질문이
-     반복되면(재시도 루프) 문제군 후보로 바로 눈에 띔. attempt 헤더에는 실제 사용자가
-     응답한 횟수(`hitl_count`, 실패한 시도는 미포함)를 `HITL N회`로 함께 표시.
-   - `finish_summary`는 finish 줄이 아니라 attempt 판정 카드에 한 번만 둔다.
-     agent의 자기 보고일 뿐이므로, 실제로 맞는 답인지는 이 텍스트와 `final_screen`을 사람이
-     직접 판단해야 함 — 스텝이 다 성공해도 답이 틀렸을 수 있음.
+   - 플로우: `{round}. \`{name}\` {args} — {reason} ({round_s}s)`
+     `{args}`는 `reason`/`summary`를 제외한 실제 인자
+     (`package`, `node_id`, `text`, `query`, `direction`, `question`).
+     `{round_s}`는 `llm_ms + tool_ms`. 구버전처럼 두 필드가 없으면 시간 표시를 생략한다.
 
 ## 참고
 
-- 소스 json 구조: `task`, `elapsed_s`, `rounds`, `tokens_total`, `cost_usd`, `tools[]`
-  (`tools[].round/name/reason/ok/result/settle`) 등.
+- 소스 json 구조: `task`, `elapsed_s`, `rounds`, `tokens_total`, `cost_usd`,
+  `finish_summary`, `final_package`, `final_screen`, `tools[]`
+  (`tools[].round/name/reason/args`) 등.
 - 이 스크립트는 task_index/attempt 개수에 의존하지 않고 실제 존재하는 만큼만 처리하므로
   10개/3회 구성이 아니어도 그대로 동작한다.
